@@ -5,6 +5,34 @@ nothing extra to install locally.
 
 ## SQLite foundation
 
+### Optional database viewer
+
+Start the app first and wait until its home page loads so the database exists:
+
+```sh
+docker compose up -d app
+docker compose --profile tools up -d sqlite-web
+```
+
+Open http://localhost:8082 to browse tables and run SELECT queries. The viewer
+uses a pinned upstream sqlite-web image and opens the database read-only. It is
+available only on this machine and is excluded from ordinary Compose startup.
+Set `LAVEMILL_DB_VIEWER_PORT` in your shell to override port 8082.
+
+```sh
+docker compose logs sqlite-web
+docker compose stop sqlite-web
+```
+
+Stopping the viewer leaves the app running. If the database does not exist,
+the viewer fails without creating it; start the app, then start the viewer again.
+Currently only the empty `schema_migrations` table appears: the pages still use
+mock data. The shared volume is writable so SQLite can create WAL coordination
+files, but the viewer's database connection rejects edits. No authentication is
+configured; keep this development tool bound to localhost.
+
+### Storage and migrations
+
 The server initializes SQLite before serving requests. Compose sets
 `LAVEMILL_DATABASE_PATH=/data/lavemill.sqlite3` on the `household-data` volume;
 outside Compose the default is `data/lavemill.sqlite3`. Missing parent directories

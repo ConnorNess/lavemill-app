@@ -26,6 +26,16 @@ services:
         source: household-data
         target: /data
 
+  sqlite-web:
+    image: ghcr.io/coleifer/sqlite-web@sha256:ec3c5811216fa5f7313e9f7269e1a1ca9c1f24f5f5ac3668c1f398c97afa362b
+    profiles: [tools]
+    command: ["--read-only", "/data/lavemill.sqlite3"]
+    ports:
+      - "127.0.0.1:${LAVEMILL_DB_VIEWER_PORT:-8082}:8080"
+    volumes:
+      # SQLite may need to create WAL coordination files even for read-only queries.
+      - household-data:/data
+
 volumes:
   cargo-registry:
   cargo-git:
