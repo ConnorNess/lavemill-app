@@ -44,6 +44,15 @@ docker compose up --build
 Ctrl+C also stops it when running in the foreground. Caches and data survive a
 normal shutdown.
 
+## Shopping preview
+
+Open http://localhost:8080/shopping or use Shopping in the navigation. Add items
+with an optional quantity, tick them off, edit them inline, or remove them with
+the × button. Undo restores the most recently removed item.
+
+The shopping page and home card share mock data while navigating. Refreshing
+resets the list to its sample items; nothing is stored in a database.
+
 ## Cargo commands
 
 ```sh

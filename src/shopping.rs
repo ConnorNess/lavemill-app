@@ -12,12 +12,38 @@ struct ShoppingItem {
 pub(super) struct ShoppingStore {
     items: Vec<ShoppingItem>,
     next_id: u64,
+    removed: Option<RemovedItem>,
+}
+
+struct RemovedItem {
+    item: ShoppingItem,
+    index: usize,
+}
+
+#[derive(Clone, PartialEq)]
+struct EditDraft {
+    id: u64,
+    name: String,
+    quantity: String,
+    error: String,
+}
+
+impl EditDraft {
+    fn from_item(item: &ShoppingItem) -> Self {
+        Self {
+            id: item.id,
+            name: item.name.clone(),
+            quantity: item.quantity.clone(),
+            error: String::new(),
+        }
+    }
 }
 
 impl ShoppingStore {
     pub(super) fn sample() -> Self {
         Self {
             next_id: 5,
+            removed: None,
             items: [
                 ("Milk", "2 litres", false),
                 ("Bread", "1 loaf", false),
@@ -54,6 +80,36 @@ impl ShoppingStore {
     fn set_checked(&mut self, id: u64, checked: bool) {
         if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
             item.checked = checked;
+        }
+    }
+
+    fn save_edit(&mut self, draft: &EditDraft) -> Result<(), &'static str> {
+        if draft.name.trim().is_empty() {
+            return Err("Enter an item name.");
+        }
+        let item = self
+            .items
+            .iter_mut()
+            .find(|item| item.id == draft.id)
+            .ok_or("This item is no longer on the list.")?;
+        item.name = draft.name.trim().into();
+        item.quantity = draft.quantity.trim().into();
+        Ok(())
+    }
+
+    fn remove(&mut self, id: u64) {
+        if let Some(index) = self.items.iter().position(|item| item.id == id) {
+            self.removed = Some(RemovedItem {
+                item: self.items.remove(index),
+                index,
+            });
+        }
+    }
+
+    fn undo_remove(&mut self) {
+        if let Some(removed) = self.removed.take() {
+            self.items
+                .insert(removed.index.min(self.items.len()), removed.item);
         }
     }
 }
@@ -100,6 +156,7 @@ fn PreviewRow(item: ShoppingItem) -> Element {
 
 #[component]
 pub(super) fn Shopping() -> Element {
+    let editing = use_signal(|| None::<EditDraft>);
     rsx! {
         document::Title { "Lavemill · Shopping List" }
         main { id: "main", class: "dashboard shopping-page", tabindex: "-1",
@@ -108,16 +165,17 @@ pub(super) fn Shopping() -> Element {
                 p { class: "mock-note", "Mock data · Resets on refresh" }
             }
             QuickAdd {}
+            RemovedNotice {}
             div { class: "shopping-groups",
-                ShoppingGroup { checked: false }
-                ShoppingGroup { checked: true }
+                ShoppingGroup { checked: false, editing }
+                ShoppingGroup { checked: true, editing }
             }
         }
     }
 }
 
 #[component]
-fn ShoppingGroup(checked: bool) -> Element {
+fn ShoppingGroup(checked: bool, editing: Signal<Option<EditDraft>>) -> Element {
     let store = use_context::<Signal<ShoppingStore>>();
     let items: Vec<_> = store
         .read()
@@ -137,7 +195,7 @@ fn ShoppingGroup(checked: bool) -> Element {
                 p { class: "shopping-empty", if checked { "No items picked up." } else { "Nothing to pick up." } }
             } else {
                 ul { class: "item-list shopping-page-list",
-                    for item in items { ShoppingItemRow { key: "{item.id}", item } }
+                    for item in items { ShoppingItemRow { key: "{item.id}", item, editing } }
                 }
             }
         }
@@ -184,20 +242,88 @@ fn QuickAdd() -> Element {
 }
 
 #[component]
-fn ShoppingItemRow(item: ShoppingItem) -> Element {
+fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<EditDraft>>) -> Element {
     let mut store = use_context::<Signal<ShoppingStore>>();
     let id = item.id;
+    let draft = editing
+        .read()
+        .as_ref()
+        .filter(|draft| draft.id == id)
+        .cloned();
+    let editing_other = editing.read().is_some();
+    let original_draft = EditDraft::from_item(&item);
     rsx! {
         li { class: if item.checked { "shopping-item-row is-done" } else { "shopping-item-row" },
-            label { class: "shopping-check",
-                input { r#type: "checkbox", checked: item.checked,
-                    aria_label: if item.checked { format!("Mark {} as still to get", item.name) } else { format!("Mark {} as picked up", item.name) },
-                    onchange: move |event| store.write().set_checked(id, event.checked())
+            if let Some(draft) = draft {
+                form { class: "shopping-edit-form", aria_label: "Edit {item.name}",
+                    onsubmit: move |event| {
+                        event.prevent_default();
+                        let draft = editing.peek().clone();
+                        if let Some(draft) = draft {
+                            match store.write().save_edit(&draft) {
+                                Ok(()) => editing.set(None),
+                                Err(message) => {
+                                    if let Some(draft) = editing.write().as_mut() { draft.error = message.into(); }
+                                }
+                            }
+                        }
+                    },
+                    div { class: "shopping-form-field",
+                        label { r#for: "edit-name-{id}", "Item" }
+                        input { id: "edit-name-{id}", name: "name", required: true, value: "{draft.name}",
+                            oninput: move |event| {
+                                if let Some(draft) = editing.write().as_mut() { draft.name = event.value(); draft.error.clear(); }
+                            }
+                        }
+                    }
+                    div { class: "shopping-form-field",
+                        label { r#for: "edit-quantity-{id}", "Quantity (optional)" }
+                        input { id: "edit-quantity-{id}", name: "quantity", value: "{draft.quantity}",
+                            oninput: move |event| { if let Some(draft) = editing.write().as_mut() { draft.quantity = event.value(); } }
+                        }
+                    }
+                    if !draft.error.is_empty() { p { class: "form-error shopping-form-message", role: "alert", "{draft.error}" } }
+                    div { class: "shopping-edit-actions",
+                        button { class: "primary-button", r#type: "submit", "Save" }
+                        button { class: "secondary-button", r#type: "button", onclick: move |_| editing.set(None), "Cancel" }
+                        button { class: "remove-item-button", r#type: "button", aria_label: "Remove {item.name}",
+                            onclick: move |_| { editing.set(None); store.write().remove(id); }, "×" }
+                    }
                 }
+            } else {
+                label { class: "shopping-check",
+                    input { r#type: "checkbox", checked: item.checked,
+                        aria_label: if item.checked { format!("Mark {} as still to get", item.name) } else { format!("Mark {} as picked up", item.name) },
+                        onchange: move |event| store.write().set_checked(id, event.checked())
+                    }
+                }
+                div { class: "row-copy",
+                    span { class: "row-title", "{item.name}" }
+                    if !item.quantity.is_empty() { span { class: "row-note", "{item.quantity}" } }
+                }
+                button { class: "edit-item-button", r#type: "button", disabled: editing_other, aria_label: "Edit {item.name}",
+                    onclick: move |_| editing.set(Some(original_draft.clone())), "Edit" }
+                button { class: "remove-item-button", r#type: "button", aria_label: "Remove {item.name}",
+                    onclick: move |_| store.write().remove(id), "×" }
             }
-            div { class: "row-copy",
-                span { class: "row-title", "{item.name}" }
-                if !item.quantity.is_empty() { span { class: "row-note", "{item.quantity}" } }
+        }
+    }
+}
+
+#[component]
+fn RemovedNotice() -> Element {
+    let mut store = use_context::<Signal<ShoppingStore>>();
+    let name = store
+        .read()
+        .removed
+        .as_ref()
+        .map(|removed| removed.item.name.clone());
+    rsx! {
+        div { class: "shopping-removal-status",
+            if let Some(name) = name {
+                p { role: "status", "Removed {name}." }
+                button { class: "secondary-button", r#type: "button", aria_label: "Undo removal of {name}",
+                    onclick: move |_| store.write().undo_remove(), "Undo" }
             }
         }
     }
@@ -240,5 +366,58 @@ mod tests {
         store.set_checked(original.id, false);
         assert!(store.items[1] == original);
         assert_eq!(store.items.iter().filter(|item| !item.checked).count(), 4);
+    }
+
+    #[test]
+    fn editing_uses_a_draft_and_preserves_identity_checked_state_and_order() {
+        let mut store = ShoppingStore::sample();
+        let original = store.items[4].clone();
+        let mut draft = EditDraft::from_item(&original);
+        draft.name = "  ".into();
+        draft.quantity = "2 boxes".into();
+        assert!(store.save_edit(&draft).is_err());
+        assert!(store.items[4] == original);
+        assert_eq!(draft.quantity, "2 boxes");
+        draft.name = " Large eggs ".into();
+        store.save_edit(&draft).unwrap();
+        let saved = &store.items[4];
+        assert_eq!((saved.id, saved.checked), (original.id, true));
+        assert_eq!((&*saved.name, &*saved.quantity), ("Large eggs", "2 boxes"));
+        let mut cancelled = EditDraft::from_item(saved);
+        cancelled.name = "Discard this change".into();
+        drop(cancelled);
+        assert_eq!(store.items[4].name, "Large eggs");
+    }
+
+    #[test]
+    fn removal_undo_restores_checked_and_open_items_in_their_original_positions() {
+        let mut store = ShoppingStore::sample();
+        let original = store.items.clone();
+        for index in [0, 2, 4] {
+            store.remove(original[index].id);
+            assert_eq!(store.items.len(), original.len() - 1);
+            assert!(!store.items.iter().any(|item| item.id == original[index].id));
+            store.undo_remove();
+            assert!(store.items == original);
+            assert!(store.removed.is_none());
+            store.undo_remove();
+            assert!(store.items == original);
+        }
+    }
+
+    #[test]
+    fn undo_only_restores_latest_removal_and_new_items_keep_unique_ids() {
+        let mut store = ShoppingStore::sample();
+        store.remove(1);
+        store.remove(4);
+        store.add("Eggs", "12").unwrap();
+        store.undo_remove();
+        assert!(!store.items.iter().any(|item| item.id == 1));
+        assert_eq!(
+            store.items.iter().map(|item| item.id).collect::<Vec<_>>(),
+            [0, 2, 3, 4, 5]
+        );
+        assert!(store.items[3].checked);
+        assert!(!store.items[4].checked);
     }
 }
