@@ -6,6 +6,49 @@ use std::{
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+// Append numbered migrations using include_str! when feature schemas are added.
+const MIGRATIONS: &[(i64, &str)] = &[];
+
+pub fn initialize(path: &Path) -> Result<()> {
+    migrate(&mut open(path)?, MIGRATIONS)
+}
+
+fn migrate(connection: &mut Connection, migrations: &[(i64, &str)]) -> Result<()> {
+    if migrations.iter().any(|(version, _)| *version <= 0)
+        || migrations.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+    {
+        return Err("migration versions must be positive and strictly increasing".into());
+    }
+    let transaction =
+        connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    transaction.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")?;
+    let applied = {
+        let mut statement =
+            transaction.prepare("SELECT version FROM schema_migrations ORDER BY version")?;
+        let rows = statement.query_map([], |row| row.get::<_, i64>(0))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    if applied.len() > migrations.len()
+        || applied
+            .iter()
+            .zip(migrations)
+            .any(|(version, migration)| *version != migration.0)
+    {
+        return Err(
+            "database migration history is unknown or is not a prefix of this build".into(),
+        );
+    }
+    for (version, sql) in &migrations[applied.len()..] {
+        transaction.execute_batch(sql)?;
+        transaction.execute(
+            "INSERT INTO schema_migrations(version) VALUES (?1)",
+            [version],
+        )?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 pub fn configured_path() -> PathBuf {
     std::env::var_os("LAVEMILL_DATABASE_PATH")
         .map(PathBuf::from)
@@ -29,6 +72,48 @@ pub fn open(path: &Path) -> Result<Connection> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrations_upgrade_once_and_preserve_data() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&mut connection, &[]).unwrap();
+        let migrations = [
+            (
+                1,
+                "CREATE TABLE example(value TEXT); INSERT INTO example VALUES ('saved');",
+            ),
+            (2, "ALTER TABLE example ADD COLUMN extra TEXT;"),
+        ];
+        migrate(&mut connection, &migrations[..1]).unwrap();
+        migrate(&mut connection, &migrations).unwrap();
+        migrate(&mut connection, &migrations).unwrap();
+        let count: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM example WHERE value = 'saved'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(migrate(&mut connection, &migrations[..1]).is_err());
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_schema_and_ledger() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&mut connection, &[]).unwrap();
+        assert!(migrate(
+            &mut connection,
+            &[(1, "CREATE TABLE example(value TEXT);"), (2, "INVALID SQL")]
+        )
+        .is_err());
+        let count: i64 = connection
+            .query_row("SELECT count(*) FROM schema_migrations", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(connection.prepare("SELECT * FROM example").is_err());
+        assert!(migrate(&mut connection, &[(2, "SELECT 1"), (1, "SELECT 1")]).is_err());
+    }
 
     #[test]
     fn file_survives_reopening_with_connection_settings() {
