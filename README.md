@@ -22,7 +22,7 @@ a while. Source edits are picked up while it's running.
 docker compose run --rm --no-deps app cargo generate-lockfile
 ```
 
-## Day to day
+## Docker commands
 
 ```sh
 # Start
@@ -40,9 +40,6 @@ docker compose down
 # Rebuild after changing the Dockerfile
 docker compose up --build
 ```
-
-Ctrl+C also stops it when running in the foreground. Caches and data survive a
-normal shutdown.
 
 ## Cargo commands
 
