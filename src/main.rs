@@ -2,6 +2,8 @@ use dioxus::prelude::*;
 
 mod todos;
 use todos::{TasksCard, Todos};
+mod shopping;
+use shopping::{Shopping, ShoppingCard};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 enum Route {
@@ -10,6 +12,8 @@ enum Route {
     Home {},
     #[route("/todos")]
     Todos {},
+    #[route("/shopping")]
+    Shopping {},
 }
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -29,6 +33,7 @@ fn App() -> Element {
 #[component]
 fn HouseholdLayout() -> Element {
     use_context_provider(|| Signal::new(todos::TaskStore::sample()));
+    use_context_provider(|| Signal::new(shopping::ShoppingStore::sample()));
     let route = use_route::<Route>();
     rsx! {
         a { class: "skip-link", href: "#main", "Skip to content" }
@@ -41,6 +46,7 @@ fn HouseholdLayout() -> Element {
                 nav { class: "main-nav", aria_label: "Main navigation",
                     Link { to: Route::Home {}, class: if route == (Route::Home {}) { "nav-link active" } else { "nav-link" }, "Home" }
                     Link { to: Route::Todos {}, class: if route == (Route::Todos {}) { "nav-link active" } else { "nav-link" }, "To-dos" }
+                    Link { to: Route::Shopping {}, class: if route == (Route::Shopping {}) { "nav-link active" } else { "nav-link" }, "Shopping" }
                 }
             }
         }
@@ -77,45 +83,6 @@ fn CardHeading(
                 h2 { id, "{title}" }
             }
             span { class: "count-badge", "{count}" }
-        }
-    }
-}
-
-#[component]
-fn ShoppingCard() -> Element {
-    rsx! {
-        section { class: "dashboard-card", aria_labelledby: "shopping-title",
-            CardHeading { icon: "shopping", title: "Shopping List", id: "shopping-title", count: "4 to get" }
-            div { class: "card-body",
-                ul { class: "item-list shopping-list",
-                    ShoppingRow { title: "Milk", quantity: "2 litres" }
-                    ShoppingRow { title: "Bread", quantity: "1 loaf" }
-                    ShoppingRow { title: "Toilet paper", quantity: "1 pack" }
-                    ShoppingRow { title: "Pads", quantity: "1 pack" }
-                }
-                h3 { class: "list-divider", "Already picked up" }
-                ul { class: "item-list shopping-list checked-list",
-                    ShoppingRow { title: "Eggs", quantity: "6", done: true }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn ShoppingRow(
-    title: &'static str,
-    quantity: &'static str,
-    #[props(default)] done: bool,
-) -> Element {
-    let row_class = if done { "list-row is-done" } else { "list-row" };
-    rsx! {
-        li { class: row_class,
-            StatusMark { done }
-            div { class: "row-copy",
-                span { class: "row-title", "{title}" }
-                span { class: "row-note", "{quantity}" }
-            }
         }
     }
 }

@@ -100,6 +100,23 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .form-feedback { margin: 8px 0 0; font-size: 0.875rem; color: var(--blue-ink); overflow-wrap: anywhere; }
 .form-feedback:empty { display: none; }
 
+.shopping-page { max-width: 920px; }
+.shopping-heading { margin-bottom: 24px; }
+.shopping-heading h1 { margin: 0; font-size: 1.75rem; font-weight: 650; letter-spacing: -0.04em; }
+.shopping-groups { display: grid; gap: 22px; }
+.shopping-group { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 3px 14px #283d4809; }
+.shopping-group-heading { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.shopping-group-heading .count-badge { margin-left: auto; }
+.shopping-empty { margin: 0; padding: 20px 0; color: var(--muted); font-size: 0.875rem; }
+.shopping-group > .shopping-empty { padding-inline: 22px; }
+.shopping-page-list { padding-inline: 22px; }
+
+@media (max-width: 600px) {
+    .header-inner { flex-wrap: wrap; padding-block: 12px; gap: 8px; }
+    .main-nav { gap: 2px; }
+    .nav-link { padding-inline: 10px; }
+}
+
 @media (max-width: 1150px) {
     .header-inner, .dashboard { padding-inline: 28px; }
     .card-heading { padding: 20px 18px; gap: 10px; }
