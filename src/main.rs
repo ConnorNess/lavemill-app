@@ -1,4 +1,6 @@
 use dioxus::prelude::*;
+#[cfg(feature = "server")]
+mod database;
 
 mod todos;
 use todos::{TasksCard, Todos};
