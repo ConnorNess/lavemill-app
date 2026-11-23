@@ -3,6 +3,46 @@
 A little family app built with Dioxus. Rust and Cargo run in Docker, so there's
 nothing extra to install locally.
 
+## SQLite foundation
+
+The server initializes SQLite before serving requests. Compose sets
+`LAVEMILL_DATABASE_PATH=/data/lavemill.sqlite3` on the `household-data` volume;
+outside Compose the default is `data/lavemill.sqlite3`. Missing parent directories
+are created. Invalid paths or failed migrations stop startup with a path and error.
+The current pages still use mock data and reset on refresh.
+
+Connections enable foreign keys, WAL mode and a five-second busy timeout.
+Only the server builds SQLite. The development image includes the `sqlite3` CLI:
+
+```sh
+docker compose exec app sqlite3 /data/lavemill.sqlite3 .schema
+docker compose exec app cargo test --locked --no-default-features --features server
+```
+
+The initial schema contains only `schema_migrations`. To add a feature schema,
+add a numbered SQL file under `src/migrations/` and append its positive version
+and `include_str!` SQL to `MIGRATIONS` in `src/database.rs`. Keep versions strictly
+increasing and never edit an applied migration. SQL must not contain transaction
+control: the runner wraps all pending migrations and ledger entries in one
+immediate transaction. Unknown or non-prefix database histories fail startup.
+
+For an isolated persistence check, use a separate Compose project (and an unused
+port, e.g. set `LAVEMILL_PORT=8081` in your shell). Build/start it with
+`docker compose -p lavemill-sqlite-check up --build -d`. Wait for compilation and
+confirm its home page loads before running:
+
+```sh
+docker compose -p lavemill-sqlite-check exec app sqlite3 /data/lavemill.sqlite3 "CREATE TABLE persistence_check(value TEXT); INSERT INTO persistence_check VALUES ('survived');"
+docker compose -p lavemill-sqlite-check up -d --force-recreate
+docker compose -p lavemill-sqlite-check exec app sqlite3 /data/lavemill.sqlite3 "SELECT value FROM persistence_check;"
+docker compose -p lavemill-sqlite-check exec app sqlite3 /data/lavemill.sqlite3 "DROP TABLE persistence_check;"
+docker compose -p lavemill-sqlite-check down
+```
+
+The query must return `survived`. `down` retains data; `down -v` deletes that
+project's volumes. Database files are ignored by Git. Backup/restore procedures
+and production deployment will be added in a separate task.
+
 Start Docker Desktop with Linux containers enabled. Run everything below from
 `lavemill-app`.
 

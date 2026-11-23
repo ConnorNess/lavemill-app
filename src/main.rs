@@ -21,6 +21,17 @@ enum Route {
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 fn main() {
+    #[cfg(feature = "server")]
+    {
+        let path = database::configured_path();
+        if let Err(error) = database::initialize(&path) {
+            eprintln!(
+                "Failed to initialize database at {}: {error}",
+                path.display()
+            );
+            std::process::exit(1);
+        }
+    }
     dioxus::launch(App);
 }
 
