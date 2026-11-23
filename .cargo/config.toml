@@ -1,0 +1,3 @@
+[resolver]
+# Keep initial dependency resolution compatible with the pinned Rust toolchain.
+incompatible-rust-versions = "fallback"
