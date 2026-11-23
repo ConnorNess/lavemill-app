@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+target
+dist
+data
+*.sqlite*
+*.db
+*.db-*
+**/*.rs.bk

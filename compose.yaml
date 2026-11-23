@@ -1,0 +1,31 @@
+services:
+  app:
+    build:
+      context: .
+      target: development
+    init: true
+    working_dir: /app
+    ports:
+      - "127.0.0.1:${LAVEMILL_PORT:-8080}:8080"
+    volumes:
+      - type: bind
+        source: .
+        target: /app
+      - type: volume
+        source: cargo-registry
+        target: /usr/local/cargo/registry
+      - type: volume
+        source: cargo-git
+        target: /usr/local/cargo/git
+      - type: volume
+        source: build-cache
+        target: /app/target
+      - type: volume
+        source: household-data
+        target: /data
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  build-cache:
+  household-data:
