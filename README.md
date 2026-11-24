@@ -129,3 +129,8 @@ requests `offline_access` when a member connects. Set
 and `LAVEMILL_OUTLOOK_TOKEN_KEY` in the server environment or ignored Compose
 `.env` file. Generate a separate token key using the command above and retain
 it across deployments and backups.
+
+On **Calendar**, connect Outlook, save a calendar selection, and choose
+**Share with household**. Home combines the current week from shared Outlook and
+Google calendars. Outlook events marked personal, private, or confidential
+appear as Busy.

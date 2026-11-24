@@ -91,14 +91,7 @@ async fn provider_status(provider: Provider) -> Result<ConnectionStatus, ServerF
 #[get("/api/calendar/agenda")]
 async fn shared_agenda() -> Result<Option<Agenda>, ServerFnError> {
     let (_, clients) = calendar_context()?;
-    let Some(google) = clients.google else {
-        return Ok(None);
-    };
-    google
-        .weekly_agenda()
-        .await
-        .map(Some)
-        .map_err(ServerFnError::new)
+    clients.weekly_agenda().await.map_err(ServerFnError::new)
 }
 
 #[cfg(feature = "server")]
@@ -151,7 +144,7 @@ pub fn CalendarCard() -> Element {
                             }
                         }
                     },
-                    Some(Ok(None)) => rsx! { p { "Google Calendar linking is unavailable on this server." } },
+                    Some(Ok(None)) => rsx! { p { "Calendar linking is unavailable on this server." } },
                     Some(Err(_)) => rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } },
                     None => rsx! { p { "Loading the shared calendar…" } },
                 }

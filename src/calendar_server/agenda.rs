@@ -1,18 +1,21 @@
 use super::{
-    connection, database_error, run_blocking, CalendarClient, Connection, ProviderError, Url,
+    connection, database_error, run_blocking, CalendarClient, CalendarClients, Connection,
+    ProviderError, Url,
 };
 use crate::{
-    calendar::{Agenda, AgendaDay, AgendaEntry},
+    calendar::{Agenda, AgendaDay, AgendaEntry, Provider},
     household_time,
 };
-use chrono::{DateTime, Datelike, Days, NaiveDate, TimeDelta, TimeZone, Utc};
+use chrono::{
+    DateTime, Datelike, Days, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone, Utc,
+};
 use chrono_tz::Tz;
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::task::JoinSet;
 
-#[derive(PartialEq)]
 struct SharedCalendar {
+    provider: Provider,
     user: i64,
     id: String,
     token: Vec<u8>,
@@ -31,12 +34,12 @@ struct Week {
 #[serde(rename_all = "camelCase")]
 struct EventPage {
     #[serde(default)]
-    items: Vec<GoogleEvent>,
+    items: Vec<CalendarEvent>,
     next_page_token: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct GoogleEvent {
+struct CalendarEvent {
     summary: Option<String>,
     visibility: Option<String>,
     status: Option<String>,
@@ -57,8 +60,20 @@ struct DatedEntry {
     entry: AgendaEntry,
 }
 
-impl CalendarClient {
-    pub async fn weekly_agenda(&self) -> Result<Agenda, &'static str> {
+impl SharedCalendar {
+    fn same_share(&self, current: &Self) -> bool {
+        self.provider == current.provider
+            && self.user == current.user
+            && self.id == current.id
+            && self.connection_id == current.connection_id
+    }
+}
+
+impl CalendarClients {
+    pub async fn weekly_agenda(&self) -> Result<Option<Agenda>, &'static str> {
+        if self.google.is_none() && self.outlook.is_none() {
+            return Ok(None);
+        }
         let zone = household_time::time_zone()?;
         let week = Week::new(zone, Utc::now().with_timezone(&zone).date_naive());
         let (start, end) = week
@@ -71,12 +86,14 @@ impl CalendarClient {
         let sources = run_blocking(|| list_shared(&connection()?)).await?;
         let mut requests = JoinSet::new();
         for source in sources {
-            let google = self.clone();
+            let Some(client) = self.get(source.provider).cloned() else {
+                continue;
+            };
             let (start, end) = (start.clone(), end.clone());
             requests.spawn(async move {
                 let result = tokio::time::timeout(
                     Duration::from_secs(10),
-                    google.weekly_events(&source, &start, &end),
+                    client.weekly_events(&source, &start, &end),
                 )
                 .await
                 .unwrap_or(Err(ProviderError::Unavailable));
@@ -91,36 +108,75 @@ impl CalendarClient {
                 Err(_) => incomplete = true,
             }
         }
-        // Check sharing again after Google responds so an in-flight request can
+        // Check sharing again after the providers respond so an in-flight request can
         // drop results for connections that were changed or disconnected.
-        let current = run_blocking(|| list_shared(&connection()?)).await?;
-        let mut entries = Vec::new();
-        for source in &current {
-            match results.iter_mut().find(|(queried, _)| queried == source) {
-                Some((_, Ok(events))) => entries.extend(
-                    events
-                        .drain(..)
-                        .filter_map(|event| week.agenda_entry(event)),
-                ),
-                _ => incomplete = true,
-            }
-        }
-        Ok(Agenda {
-            has_shared_calendars: !current.is_empty(),
-            incomplete,
-            days: week.group_entries(entries),
-        })
+        let mut current = run_blocking(|| list_shared(&connection()?)).await?;
+        current.retain(|source| self.get(source.provider).is_some());
+        let mut agenda = assemble_agenda(week, current, results);
+        agenda.incomplete |= incomplete && agenda.has_shared_calendars;
+        Ok(Some(agenda))
     }
+}
 
+fn assemble_agenda(
+    week: Week,
+    current: Vec<SharedCalendar>,
+    mut results: Vec<(SharedCalendar, Result<Vec<CalendarEvent>, ProviderError>)>,
+) -> Agenda {
+    let mut entries = Vec::new();
+    let mut incomplete = false;
+    for source in &current {
+        match results
+            .iter_mut()
+            .find(|(queried, _)| queried.same_share(source))
+        {
+            Some((_, Ok(events))) => entries.extend(
+                events
+                    .drain(..)
+                    .filter_map(|event| week.agenda_entry(event)),
+            ),
+            _ => incomplete = true,
+        }
+    }
+    Agenda {
+        has_shared_calendars: !current.is_empty(),
+        incomplete,
+        days: week.group_entries(entries),
+    }
+}
+
+impl CalendarClient {
     async fn weekly_events(
         &self,
         source: &SharedCalendar,
         start: &str,
         end: &str,
-    ) -> Result<Vec<GoogleEvent>, ProviderError> {
+    ) -> Result<Vec<CalendarEvent>, ProviderError> {
         let access_token = self
             .access_token(source.user, &source.connection_id, &source.token)
             .await?;
+        if source.provider == Provider::Outlook {
+            let mut url = Url::parse("https://graph.microsoft.com/v1.0/me/calendars/")
+                .expect("Graph calendar URL is valid");
+            url.path_segments_mut()
+                .expect("Graph supports path segments")
+                .pop_if_empty()
+                .push(&source.id)
+                .push("calendarView");
+            url.query_pairs_mut().extend_pairs([
+                ("startDateTime", start),
+                ("endDateTime", end),
+                ("$select", "subject,sensitivity,isCancelled,isAllDay,start,end,originalStartTimeZone,originalEndTimeZone"),
+            ]);
+            let events = self
+                .graph_collection::<OutlookEvent>(url, &access_token)
+                .await?;
+            return Ok(events
+                .into_iter()
+                .filter_map(OutlookEvent::normalize)
+                .collect());
+        }
+
         let mut url = Url::parse("https://www.googleapis.com/calendar/v3/calendars/")
             .expect("Google Calendar API URL is valid");
         url.path_segments_mut()
@@ -166,11 +222,98 @@ impl CalendarClient {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OutlookEvent {
+    subject: Option<String>,
+    sensitivity: Option<String>,
+    is_cancelled: bool,
+    is_all_day: bool,
+    start: Option<OutlookTime>,
+    end: Option<OutlookTime>,
+    original_start_time_zone: Option<String>,
+    original_end_time_zone: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OutlookTime {
+    date_time: String,
+    time_zone: String,
+}
+
+impl OutlookEvent {
+    fn normalize(self) -> Option<CalendarEvent> {
+        if self.is_cancelled {
+            return None;
+        }
+        let start = self.start?.utc()?;
+        let end = self.end?.utc()?;
+        let normalize_time = |time: DateTime<Utc>, original_zone: Option<&str>| {
+            if self.is_all_day {
+                Some(EventTime {
+                    date: Some(outlook_date(time, original_zone)?.to_string()),
+                    date_time: None,
+                })
+            } else {
+                Some(EventTime {
+                    date: None,
+                    date_time: Some(time.to_rfc3339()),
+                })
+            }
+        };
+        Some(CalendarEvent {
+            summary: self.subject,
+            visibility: (self.sensitivity.as_deref() != Some("normal")).then(|| "private".into()),
+            status: None,
+            start: Some(normalize_time(
+                start,
+                self.original_start_time_zone.as_deref(),
+            )?),
+            end: Some(normalize_time(
+                end,
+                self.original_end_time_zone
+                    .as_deref()
+                    .or(self.original_start_time_zone.as_deref()),
+            )?),
+        })
+    }
+}
+
+impl OutlookTime {
+    fn utc(self) -> Option<DateTime<Utc>> {
+        if let Ok(with_offset) = DateTime::parse_from_rfc3339(&self.date_time) {
+            return Some(with_offset.with_timezone(&Utc));
+        }
+        if !self.time_zone.eq_ignore_ascii_case("UTC") {
+            return None;
+        }
+        NaiveDateTime::parse_from_str(&self.date_time, "%Y-%m-%dT%H:%M:%S%.f")
+            .ok()
+            .map(|time| time.and_utc())
+    }
+}
+
+fn outlook_date(utc: DateTime<Utc>, original_zone: Option<&str>) -> Option<NaiveDate> {
+    if utc.time() == NaiveTime::MIN {
+        return Some(utc.date_naive());
+    }
+    let zone = original_zone?;
+    let zone = zone.parse::<Tz>().ok().or_else(|| {
+        include_str!("windows_zones.tsv")
+            .lines()
+            .filter_map(|line| line.split_once('\t'))
+            .find(|(name, _)| name.eq_ignore_ascii_case(zone))
+            .and_then(|(_, iana)| iana.parse().ok())
+    })?;
+    Some(utc.with_timezone(&zone).date_naive())
+}
+
 fn list_shared(db: &Connection) -> Result<Vec<SharedCalendar>, &'static str> {
     let mut statement = db
         .prepare(
-            "SELECT user_id, calendar_id, refresh_token, id FROM calendar_connections
-             WHERE shared = 1 AND provider = 'google'",
+            "SELECT user_id, calendar_id, refresh_token, id, provider = 'outlook' FROM calendar_connections
+             WHERE shared = 1",
         )
         .map_err(database_error)?;
     let rows = statement
@@ -180,6 +323,11 @@ fn list_shared(db: &Connection) -> Result<Vec<SharedCalendar>, &'static str> {
                 id: row.get(1)?,
                 token: row.get(2)?,
                 connection_id: row.get(3)?,
+                provider: if row.get::<_, bool>(4)? {
+                    Provider::Outlook
+                } else {
+                    Provider::Google
+                },
             })
         })
         .map_err(database_error)?;
@@ -211,7 +359,7 @@ impl Week {
         Some((start(self.first)?, start(self.until)?))
     }
 
-    fn agenda_entry(self, event: GoogleEvent) -> Option<DatedEntry> {
+    fn agenda_entry(self, event: CalendarEvent) -> Option<DatedEntry> {
         if event.status.as_deref() == Some("cancelled") {
             return None;
         }
@@ -315,12 +463,12 @@ mod tests {
         value.parse().unwrap()
     }
 
-    fn event(start: &str, end: &str, all_day: bool) -> GoogleEvent {
+    fn event(start: &str, end: &str, all_day: bool) -> CalendarEvent {
         let time = |value: &str| EventTime {
             date: all_day.then(|| value.to_owned()),
             date_time: (!all_day).then(|| value.to_owned()),
         };
-        GoogleEvent {
+        CalendarEvent {
             summary: Some("Family event".into()),
             visibility: None,
             status: Some("confirmed".into()),
@@ -396,5 +544,92 @@ mod tests {
         assert_eq!(shared[0].id, "family");
         assert!(super::super::set_shared(&db, "google", 1, "family", false).unwrap());
         assert!(list_shared(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn outlook_events_preserve_all_day_dates_and_redact_sensitive_subjects() {
+        let week = Week::new(chrono_tz::Europe::London, date("2026-03-29"));
+        let outlook_time = |date_time: &str| OutlookTime {
+            date_time: date_time.to_owned(),
+            time_zone: "UTC".into(),
+        };
+        let mut event = OutlookEvent {
+            subject: Some("Personal plans".into()),
+            sensitivity: Some("personal".into()),
+            is_cancelled: false,
+            is_all_day: true,
+            start: Some(outlook_time("2026-03-28T23:00:00.0000000")),
+            end: Some(outlook_time("2026-03-29T22:00:00.0000000")),
+            original_start_time_zone: Some("W. Europe Standard Time".into()),
+            original_end_time_zone: Some("W. Europe Standard Time".into()),
+        };
+        let entry = week.agenda_entry(event.normalize().unwrap()).unwrap();
+        assert_eq!(entry.day, date("2026-03-29"));
+        assert_eq!(entry.entry.title, "Busy");
+        assert_eq!(entry.entry.when, "All day");
+
+        event = OutlookEvent {
+            subject: Some("Recurring appointment".into()),
+            sensitivity: Some("normal".into()),
+            is_cancelled: false,
+            is_all_day: false,
+            start: Some(outlook_time("2026-03-29T10:00:00.0000000")),
+            end: Some(outlook_time("2026-03-29T11:00:00.0000000")),
+            original_start_time_zone: None,
+            original_end_time_zone: None,
+        };
+        let entry = week.agenda_entry(event.normalize().unwrap()).unwrap();
+        assert_eq!(entry.entry.title, "Recurring appointment");
+        assert_eq!(entry.entry.when, "11:00–12:00");
+    }
+
+    #[test]
+    fn shared_agenda_keeps_healthy_results_and_drops_unshared_or_replaced_connections() {
+        let week = Week::new(chrono_tz::Europe::London, date("2026-03-29"));
+        let source = |provider, generation, token| SharedCalendar {
+            provider,
+            user: 1,
+            id: "family".into(),
+            token: vec![token],
+            connection_id: vec![generation],
+        };
+        let family_event = || vec![event("2026-03-29", "2026-03-30", true)];
+        let google = || source(Provider::Google, 1, 1);
+        let outlook = || source(Provider::Outlook, 2, 1);
+        let results = || {
+            vec![
+                (google(), Ok(family_event())),
+                (outlook(), Ok(family_event())),
+            ]
+        };
+
+        let agenda = assemble_agenda(week, vec![google(), outlook()], results());
+        assert_eq!(agenda.days[0].entries.len(), 2);
+        assert!(!agenda.incomplete);
+
+        let agenda = assemble_agenda(week, vec![google()], results());
+        assert_eq!(agenda.days[0].entries.len(), 1);
+        assert!(!agenda.incomplete);
+
+        let rotated = source(Provider::Outlook, 2, 9);
+        let agenda = assemble_agenda(week, vec![rotated], results());
+        assert_eq!(agenda.days[0].entries.len(), 1);
+        assert!(!agenda.incomplete);
+
+        let reconnected = source(Provider::Outlook, 3, 9);
+        let agenda = assemble_agenda(week, vec![google(), reconnected], results());
+        assert_eq!(agenda.days[0].entries.len(), 1);
+        assert!(agenda.incomplete);
+
+        let agenda = assemble_agenda(
+            week,
+            vec![google(), outlook()],
+            vec![
+                (google(), Ok(family_event())),
+                (outlook(), Err(ProviderError::Unavailable)),
+            ],
+        );
+        assert_eq!(agenda.days[0].entries.len(), 1);
+        assert!(agenda.incomplete);
     }
 }
