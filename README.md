@@ -10,7 +10,7 @@ nothing extra to install locally.
 Start the app and the SQLite viewer together:
 
 ```sh
-docker compose up
+docker compose --profile dev-tools up
 ```
 
 Open http://localhost:8082 to browse tables and run SELECT queries. The viewer
@@ -25,7 +25,7 @@ docker compose logs sqlite-web
 docker compose stop sqlite-web
 ```
 
-Stopping the viewer leaves the app running. Use `docker compose up app` to start
+Stopping the viewer leaves the app running. Use `docker compose up` to start
 only the app. The app pages still use mock data, so the viewer shows only the
 empty `schema_migrations` table. The shared volume is writable so SQLite can create
 WAL coordination files, but the viewer's database connection rejects edits. No
@@ -81,8 +81,8 @@ docker compose build
 docker compose up
 ```
 
-Open the app at http://localhost:8080 and the SQLite viewer at http://localhost:8082
-once the app finishes compiling and initializes the database. The first build
+Open the app at http://localhost:8080 once it finishes compiling and initializes
+the database. The first build
 takes a while. Source edits are picked up while the app is running.
 
 `Cargo.lock` is included. If it ever needs generating from scratch:
