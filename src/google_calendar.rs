@@ -4,12 +4,14 @@ use crate::{
         server::{connection, now, run_blocking, SessionHash},
         Viewer,
     },
+    calendar::{CalendarChoice, CalendarChoices, ConnectionStatus},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use dioxus::server::axum::{
     extract::{Extension, Query},
     http::{header, HeaderMap},
     response::Redirect,
+    Form,
 };
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -20,6 +22,7 @@ use url::Url;
 
 const CALLBACK_PATH: &str = "/calendar/google/callback";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const CALENDAR_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const SCOPES: &str = "https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly";
 const ATTEMPT_SECONDS: i64 = 10 * 60;
 const NONCE_BYTES: usize = 12;
@@ -34,6 +37,17 @@ struct Config {
     client_secret: String,
     token_key: LessSafeKey,
     http: reqwest::Client,
+}
+
+struct LinkedCalendar {
+    token: Vec<u8>,
+    calendar_id: Option<String>,
+    shared: bool,
+}
+
+enum GoogleError {
+    Reconnect,
+    Unavailable,
 }
 
 impl GoogleCalendar {
@@ -67,17 +81,122 @@ impl GoogleCalendar {
         }))))
     }
 
-    pub async fn is_connected(user: i64) -> Result<bool, &'static str> {
-        run_blocking(move || {
-            connection()?
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM google_calendar_connections WHERE user_id = ?1)",
-                    [user],
-                    |row| row.get(0),
-                )
-                .map_err(database_error)
+    pub async fn status(&self, user: i64) -> Result<ConnectionStatus, &'static str> {
+        let Some(link) = linked_calendar(user).await? else {
+            return Ok(ConnectionStatus::Disconnected);
+        };
+        let choices = match self.calendar_choices(user, &link.token).await {
+            Ok(choices) => CalendarChoices::Available(choices),
+            Err(GoogleError::Reconnect) => CalendarChoices::Reconnect,
+            Err(GoogleError::Unavailable) => CalendarChoices::Unavailable,
+        };
+        Ok(ConnectionStatus::Connected {
+            selected: link.calendar_id,
+            shared: link.shared,
+            choices,
         })
-        .await
+    }
+
+    async fn access_token(&self, user: i64, sealed: &[u8]) -> Result<String, GoogleError> {
+        #[derive(Deserialize)]
+        struct Token {
+            access_token: String,
+        }
+        #[derive(Deserialize)]
+        struct TokenError {
+            error: String,
+        }
+
+        let token = decrypt_token(&self.0.token_key, user, sealed)?;
+        let response = self
+            .0
+            .http
+            .post(TOKEN_URL)
+            .form(&[
+                ("client_id", self.0.client_id.as_str()),
+                ("client_secret", self.0.client_secret.as_str()),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", token.as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|_| GoogleError::Unavailable)?;
+        if response.status() == reqwest::StatusCode::BAD_REQUEST {
+            return Err(match response.json::<TokenError>().await {
+                Ok(error) if error.error == "invalid_grant" => GoogleError::Reconnect,
+                _ => GoogleError::Unavailable,
+            });
+        }
+        let token: Token = response
+            .error_for_status()
+            .map_err(|_| GoogleError::Unavailable)?
+            .json()
+            .await
+            .map_err(|_| GoogleError::Unavailable)?;
+        Ok(token.access_token)
+    }
+
+    async fn calendar_choices(
+        &self,
+        user: i64,
+        sealed: &[u8],
+    ) -> Result<Vec<CalendarChoice>, GoogleError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Page {
+            #[serde(default)]
+            items: Vec<GoogleChoice>,
+            next_page_token: Option<String>,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct GoogleChoice {
+            id: String,
+            summary: String,
+            summary_override: Option<String>,
+            access_role: String,
+        }
+
+        let access_token = self.access_token(user, sealed).await?;
+        let mut choices = Vec::new();
+        let mut page_token = None;
+        loop {
+            let mut request = self
+                .0
+                .http
+                .get(CALENDAR_LIST_URL)
+                .bearer_auth(&access_token)
+                .query(&[(
+                    "fields",
+                    "items(id,summary,summaryOverride,accessRole),nextPageToken",
+                )]);
+            if let Some(token) = page_token {
+                request = request.query(&[("pageToken", token)]);
+            }
+            let page: Page = request
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status)
+                .map_err(|_| GoogleError::Unavailable)?
+                .json()
+                .await
+                .map_err(|_| GoogleError::Unavailable)?;
+            choices.extend(page.items.into_iter().filter_map(|choice| {
+                matches!(
+                    choice.access_role.as_str(),
+                    "owner" | "writer" | "reader" | "writerWithoutPrivateAccess"
+                )
+                .then(|| CalendarChoice {
+                    id: choice.id,
+                    name: choice.summary_override.unwrap_or(choice.summary),
+                })
+            }));
+            page_token = page.next_page_token;
+            if page_token.is_none() {
+                break;
+            }
+        }
+        Ok(choices)
     }
 
     fn authorization_url(&self, state: &str, verifier: &str) -> Url {
@@ -232,6 +351,93 @@ pub async fn disconnect(Extension(viewer): Extension<Viewer>) -> Redirect {
     }
 }
 
+#[derive(Deserialize)]
+pub struct CalendarSelection {
+    calendar_id: String,
+}
+
+pub async fn select(
+    Extension(viewer): Extension<Viewer>,
+    google: Option<Extension<GoogleCalendar>>,
+    Form(selection): Form<CalendarSelection>,
+) -> Redirect {
+    let (Some(Extension(google)), Ok(Some(link))) = (google, linked_calendar(viewer.id).await)
+    else {
+        return calendar("failed");
+    };
+    let id = selection.calendar_id;
+    match google.calendar_choices(viewer.id, &link.token).await {
+        Ok(choices) if choices.iter().any(|choice| choice.id == id) => {}
+        Err(GoogleError::Reconnect) => return calendar("reconnect"),
+        _ => return calendar("selection_failed"),
+    }
+    let user = viewer.id;
+    let changed =
+        run_blocking(move || save_selection(&connection()?, user, &link.token, &id)).await;
+    match changed {
+        Ok(true) => calendar("selected"),
+        _ => calendar("selection_failed"),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CalendarSharing {
+    calendar_id: String,
+    shared: bool,
+}
+
+pub async fn share(
+    Extension(viewer): Extension<Viewer>,
+    google: Option<Extension<GoogleCalendar>>,
+    Form(sharing): Form<CalendarSharing>,
+) -> Redirect {
+    if sharing.shared && google.is_none() {
+        return calendar("failed");
+    }
+    let user = viewer.id;
+    let shared = sharing.shared;
+    let saved =
+        run_blocking(move || set_shared(&connection()?, user, &sharing.calendar_id, shared)).await;
+    match saved {
+        Ok(true) if shared => calendar("shared"),
+        Ok(true) => calendar("unshared"),
+        _ => calendar("selection_failed"),
+    }
+}
+
+async fn linked_calendar(user: i64) -> Result<Option<LinkedCalendar>, &'static str> {
+    run_blocking(move || {
+        connection()?.query_row(
+            "SELECT refresh_token, calendar_id, shared FROM google_calendar_connections WHERE user_id = ?1",
+            [user],
+            |row| Ok(LinkedCalendar { token: row.get(0)?, calendar_id: row.get(1)?, shared: row.get(2)? }),
+        ).optional().map_err(database_error)
+    }).await
+}
+
+fn save_selection(
+    db: &Connection,
+    user: i64,
+    token: &[u8],
+    id: &str,
+) -> Result<bool, &'static str> {
+    db.execute(
+        "UPDATE google_calendar_connections
+         SET calendar_id = ?3, shared = CASE WHEN calendar_id = ?3 THEN shared ELSE 0 END
+         WHERE user_id = ?1 AND refresh_token = ?2",
+        params![user, token, id],
+    )
+    .map(|rows| rows == 1)
+    .map_err(database_error)
+}
+
+fn set_shared(db: &Connection, user: i64, id: &str, shared: bool) -> Result<bool, &'static str> {
+    db.execute(
+        "UPDATE google_calendar_connections SET shared = ?3 WHERE user_id = ?1 AND calendar_id = ?2",
+        params![user, id, shared],
+    ).map(|rows| rows == 1).map_err(database_error)
+}
+
 fn claim_attempt(
     db: &Connection,
     user: i64,
@@ -269,7 +475,8 @@ fn save_connection(
     }
     tx.execute(
         "INSERT INTO google_calendar_connections (user_id, refresh_token) VALUES (?1, ?2)
-         ON CONFLICT(user_id) DO UPDATE SET refresh_token = excluded.refresh_token",
+         ON CONFLICT(user_id) DO UPDATE SET refresh_token = excluded.refresh_token,
+           calendar_id = NULL, shared = 0",
         params![user, token],
     )
     .map_err(database_error)?;
@@ -304,6 +511,18 @@ fn encrypt_token(key: &LessSafeKey, user: i64, token: &str) -> Result<Vec<u8>, &
     let mut stored = nonce.to_vec();
     stored.extend(sealed);
     Ok(stored)
+}
+
+fn decrypt_token(key: &LessSafeKey, user: i64, stored: &[u8]) -> Result<String, GoogleError> {
+    let (nonce, sealed) = stored
+        .split_at_checked(NONCE_BYTES)
+        .ok_or(GoogleError::Reconnect)?;
+    let nonce = Nonce::try_assume_unique_for_key(nonce).map_err(|_| GoogleError::Reconnect)?;
+    let mut sealed = sealed.to_vec();
+    let plaintext = key
+        .open_in_place(nonce, Aad::from(user.to_be_bytes()), &mut sealed)
+        .map_err(|_| GoogleError::Reconnect)?;
+    String::from_utf8(plaintext.to_vec()).map_err(|_| GoogleError::Reconnect)
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N], &'static str> {
@@ -379,6 +598,27 @@ mod tests {
             )
             .unwrap();
         assert_eq!(token, b"sealed token");
+        assert!(!set_shared(&db, 2, "family", true).unwrap());
+        assert!(!set_shared(&db, 1, "family", true).unwrap());
+        assert!(!save_selection(&db, 1, b"old token", "family").unwrap());
+        assert!(save_selection(&db, 1, &token, "family").unwrap());
+        assert!(set_shared(&db, 1, "family", true).unwrap());
+        assert!(save_selection(&db, 1, &token, "family").unwrap());
+        let shared = || {
+            db.query_row(
+                "SELECT shared FROM google_calendar_connections WHERE user_id = 1",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap()
+        };
+        assert!(shared());
+        assert!(save_selection(&db, 1, &token, "personal").unwrap());
+        assert!(!shared());
+        assert!(!set_shared(&db, 1, "family", true).unwrap());
+        assert!(set_shared(&db, 1, "personal", true).unwrap());
+        assert!(set_shared(&db, 1, "personal", false).unwrap());
+        assert!(!shared());
 
         start(&db);
         assert!(claim_attempt(&db, 1, session, state).unwrap().is_some());
@@ -399,13 +639,13 @@ mod tests {
         let key = LessSafeKey::new(UnboundKey::new(&aead::AES_256_GCM, &[8; 32]).unwrap());
         let stored = encrypt_token(&key, 42, "refresh token").unwrap();
         assert_ne!(stored, encrypt_token(&key, 42, "refresh token").unwrap());
-        let (nonce, sealed) = stored.split_at(NONCE_BYTES);
-        let nonce = Nonce::try_assume_unique_for_key(nonce).unwrap();
-        let mut sealed = sealed.to_vec();
         assert_eq!(
-            key.open_in_place(nonce, Aad::from(42i64.to_be_bytes()), &mut sealed)
-                .unwrap(),
-            b"refresh token"
+            decrypt_token(&key, 42, &stored).ok().as_deref(),
+            Some("refresh token")
         );
+        assert!(matches!(
+            decrypt_token(&key, 43, &stored),
+            Err(GoogleError::Reconnect)
+        ));
     }
 }

@@ -227,6 +227,14 @@ pub mod server {
                 "/calendar/google/disconnect",
                 post(crate::google_calendar::disconnect),
             )
+            .route(
+                "/calendar/google/select",
+                post(crate::google_calendar::select),
+            )
+            .route(
+                "/calendar/google/share",
+                post(crate::google_calendar::share),
+            )
             .layer(DefaultBodyLimit::max(8 * 1024))
             .with_state(state.clone())
             .serve_dioxus_application(ServeConfig::new(), App)
