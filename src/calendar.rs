@@ -280,27 +280,29 @@ fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
         return rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } };
     };
     let selected = selected_day().unwrap_or_else(|| data.date.clone());
+    let week_href = period_route(Some("week".into()), selected.clone()).to_string();
+    let month_href = period_route(Some("month".into()), selected.clone()).to_string();
     let view = if data.month { "month" } else { "week" };
     rsx! {
         div { class: "calendar-toolbar",
             h2 { "{data.label}" }
             div { class: "calendar-toolbar-actions",
                 nav { class: "calendar-nav", aria_label: "Calendar view",
-                    Link {
-                        to: period_route(Some("week".into()), selected.clone()),
+                    a {
+                        href: week_href,
                         aria_current: if !data.month { "true" } else { "false" },
                         "Week"
                     }
-                    Link {
-                        to: period_route(Some("month".into()), selected.clone()),
+                    a {
+                        href: month_href,
                         aria_current: if data.month { "true" } else { "false" },
                         "Month"
                     }
                 }
                 nav { class: "calendar-nav", aria_label: "Calendar dates",
-                    Link { to: period_route(Some(view.into()), data.previous.clone()), "Previous" }
-                    Link { to: period_route(Some(view.into()), data.today.clone()), "Today" }
-                    Link { to: period_route(Some(view.into()), data.next.clone()), "Next" }
+                    a { href: period_route(Some(view.into()), data.previous.clone()).to_string(), "Previous" }
+                    a { href: period_route(Some(view.into()), data.today.clone()).to_string(), "Today" }
+                    a { href: period_route(Some(view.into()), data.next.clone()).to_string(), "Next" }
                 }
             }
         }
