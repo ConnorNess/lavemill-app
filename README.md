@@ -108,7 +108,7 @@ reconnect. With all three settings unset, calendar linking is disabled.
 For an external OAuth app in Testing, add each Google account as a test user.
 Google refresh tokens for Calendar expire after seven days in Testing mode.
 
-Open **Calendar** in Lavemill to connect Google and save a calendar selection.
+Open **Calendar ? Manage calendars** to connect Google and save a calendar selection.
 Select **Share with household** to show its current week on Home. Events marked
 private appear as Busy. Use **Stop sharing** to remove the calendar from Home
 while keeping it connected.
@@ -130,7 +130,7 @@ and `LAVEMILL_OUTLOOK_TOKEN_KEY` in the server environment or ignored Compose
 `.env` file. Generate a separate token key using the command above and retain
 it across deployments and backups.
 
-On **Calendar**, connect Outlook, save a calendar selection, and choose
+Under **Calendar ? Manage calendars**, connect Outlook, save a calendar selection, and choose
 **Share with household**. Home combines the current week from shared Outlook and
 Google calendars. Outlook events marked personal, private, or confidential
 appear as Busy.

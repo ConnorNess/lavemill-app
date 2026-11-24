@@ -172,7 +172,7 @@ pub fn CalendarCard() -> Element {
                         }
                         if !agenda.has_shared_calendars {
                             p { "Your household hasn’t shared a calendar yet." }
-                            Link { to: Route::Calendar { notice: None }, "Connect a calendar" }
+                            Link { to: Route::Calendar { view: None, date: None, notice: Some("manage".into()) }, "Connect a calendar" }
                         } else if agenda.days.is_empty() && !agenda.incomplete {
                             p { "No shared events this week." }
                         }
@@ -203,7 +203,8 @@ pub fn CalendarCard() -> Element {
 }
 
 #[component]
-pub fn Calendar(notice: Option<String>) -> Element {
+pub fn Calendar(view: Option<String>, date: Option<String>, notice: Option<String>) -> Element {
+    let mut manage_open = use_signal(|| notice.is_some());
     let (notice_provider, notice) = match notice.as_deref() {
         Some(notice) if notice.starts_with("outlook_") => {
             (Provider::Outlook, notice.strip_prefix("outlook_"))
@@ -229,15 +230,207 @@ pub fn Calendar(notice: Option<String>) -> Element {
         _ => None,
     };
     rsx! {
-        main { id: "main", class: "dashboard",
+        main { id: "main", class: "dashboard calendar-page",
             document::Title { "Lavemill ? Calendar" }
-            h1 { "Calendar" }
-            if let Some(message) = message {
-                p { role: "status", "{message}" }
+            div { class: "calendar-heading",
+                h1 { "Calendar" }
+                button {
+                    class: "secondary-button",
+                    r#type: "button",
+                    aria_expanded: manage_open(),
+                    aria_controls: "calendar-connections",
+                    onclick: move |_| manage_open.toggle(),
+                    "Manage calendars"
+                }
             }
-            CalendarConnection { provider: Provider::Google }
-            CalendarConnection { provider: Provider::Outlook }
+            section { id: "calendar-connections", hidden: !manage_open(), aria_label: "Calendar connections",
+                if manage_open() {
+                    if let Some(message) = message {
+                        p { role: "status", "{message}" }
+                    }
+                    div { class: "calendar-connections",
+                        CalendarConnection { provider: Provider::Google }
+                        CalendarConnection { provider: Provider::Outlook }
+                    }
+                }
+            }
+            CalendarPeriod { key: "{view:?}/{date:?}", view, date }
         }
+    }
+}
+
+fn period_route(view: Option<String>, date: String) -> Route {
+    Route::Calendar {
+        view,
+        date: Some(date),
+        notice: None,
+    }
+}
+
+#[component]
+fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
+    let date_query = date.clone();
+    let data = use_server_future(move || {
+        calendar_view(CalendarViewQuery {
+            view: None,
+            date: date_query.clone(),
+        })
+    })?;
+    let data = data.read();
+    match data.as_ref() {
+        Some(Ok(data)) => rsx! {
+            div { class: "calendar-toolbar",
+                h2 { "{data.label}" }
+                nav { class: "calendar-nav", aria_label: "Calendar dates",
+                    Link { to: period_route(view.clone(), data.previous.clone()), "Previous" }
+                    Link { to: period_route(view.clone(), data.today.clone()), "Today" }
+                    Link { to: period_route(view, data.next.clone()), "Next" }
+                }
+            }
+            if data.incomplete {
+                p { role: "status", "Some shared calendars could not be loaded." }
+            }
+            if !data.configured {
+                p { class: "row-note", "Calendar linking is unavailable on this server." }
+            } else if !data.has_shared_calendars {
+                p { class: "row-note", "Your household hasn?t shared a calendar yet." }
+            }
+            WeekGrid { days: data.days.clone(), today: data.today.clone() }
+        },
+        Some(Err(_)) => {
+            rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } }
+        }
+        None => rsx! { p { "Loading the shared calendar?" } },
+    }
+}
+
+#[component]
+fn WeekGrid(days: Vec<CalendarDay>, today: String) -> Element {
+    rsx! {
+        div { class: "calendar-week-scroll", role: "region", aria_label: "Hourly week calendar", tabindex: "0",
+            div { class: "calendar-week",
+                div { class: "calendar-week-row calendar-week-head",
+                    span {}
+                    for day in &days {
+                        h3 { key: "{day.date}", aria_label: "{day.label}", class: if day.date == today { "calendar-today" },
+                            "{day.weekday} {day.number}"
+                        }
+                    }
+                }
+                div { class: "calendar-week-row calendar-all-day",
+                    span { class: "calendar-all-day-label", "All day" }
+                    for day in &days {
+                        ul { key: "{day.date}", class: "item-list", aria_label: "All-day events on {day.label}",
+                            for (index, event) in day.events.iter().filter(|event| event.minutes.is_none()).enumerate() {
+                                li { key: "{index}", "{event.title}" }
+                            }
+                        }
+                    }
+                }
+                div { class: "calendar-week-row calendar-hours",
+                    div { class: "calendar-hour-labels", aria_hidden: "true",
+                        for hour in 0..24 {
+                            div { key: "{hour}", "{hour:02}:00" }
+                        }
+                    }
+                    for day in &days {
+                        section { key: "{day.date}", class: "calendar-hour-column", aria_label: "Timed events on {day.label}",
+                            for (index, block) in scheduled_blocks(&day.events).into_iter().enumerate() {
+                                div { key: "{index}", class: "calendar-timed-event", style: block.style(),
+                                    title: "{block.event.title} ? {block.event.when}",
+                                    span { class: "calendar-timed-title", "{block.event.title}" }
+                                    span { class: "calendar-timed-time", "{block.event.when}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ScheduledBlock<'a> {
+    event: &'a CalendarViewEvent,
+    start: u32,
+    end: u32,
+    lane: usize,
+    lanes: usize,
+}
+
+impl ScheduledBlock<'_> {
+    fn style(&self) -> String {
+        let top = f64::from(self.start) / 14.4;
+        let height = f64::from(self.end - self.start) / 14.4;
+        let width = 100.0 / self.lanes as f64;
+        let left = width * self.lane as f64;
+        format!("top:{top:.3}%;height:{height:.3}%;left:{left:.3}%;width:{width:.3}%")
+    }
+}
+
+fn scheduled_blocks(events: &[CalendarViewEvent]) -> Vec<ScheduledBlock<'_>> {
+    let mut blocks: Vec<ScheduledBlock<'_>> = Vec::new();
+    let mut lane_ends = Vec::new();
+    let mut group_start = 0;
+    let mut group_end = 0;
+    for (event, (start, end)) in events
+        .iter()
+        .filter_map(|event| Some((event, event.minutes?)))
+    {
+        let end = end.max(start + 24).min(1440);
+        if start >= group_end {
+            for block in &mut blocks[group_start..] {
+                block.lanes = lane_ends.len();
+            }
+            group_start = blocks.len();
+            lane_ends.clear();
+        }
+        let lane = lane_ends
+            .iter()
+            .position(|until| *until <= start)
+            .unwrap_or(lane_ends.len());
+        if lane == lane_ends.len() {
+            lane_ends.push(end);
+        } else {
+            lane_ends[lane] = end;
+        }
+        group_end = group_end.max(end);
+        blocks.push(ScheduledBlock {
+            event,
+            start,
+            end,
+            lane,
+            lanes: 1,
+        });
+    }
+    for block in &mut blocks[group_start..] {
+        block.lanes = lane_ends.len();
+    }
+    blocks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn week_grid_gives_overlapping_events_separate_lanes() {
+        let event = |start, end| CalendarViewEvent {
+            minutes: Some((start, end)),
+            title: "Event".into(),
+            when: String::new(),
+        };
+        let events = [
+            event(540, 630),
+            event(570, 600),
+            event(600, 660),
+            event(720, 750),
+        ];
+        let placement: Vec<_> = scheduled_blocks(&events)
+            .iter()
+            .map(|block| (block.lane, block.lanes))
+            .collect();
+        assert_eq!(placement, [(0, 2), (1, 2), (1, 2), (0, 1)]);
     }
 }
 
