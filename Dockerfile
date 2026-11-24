@@ -24,4 +24,4 @@ WORKDIR /app
 RUN mkdir -p /data
 EXPOSE 8080
 
-CMD ["dx", "serve", "--web", "--addr", "0.0.0.0", "--port", "8080", "--open", "false", "--interactive", "false"]
+CMD ["dx", "serve", "--web", "--addr", "0.0.0.0", "--port", "8080", "--open", "false", "--interactive", "false", "--exit-on-error"]

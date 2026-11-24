@@ -5,18 +5,19 @@ nothing extra to install locally.
 
 ## SQLite foundation
 
-### Optional database viewer
+### Database viewer
 
-Start the app first and wait until its home page loads so the database exists:
+Start the app and the SQLite viewer together:
 
 ```sh
-docker compose up -d app
-docker compose --profile tools up -d sqlite-web
+docker compose up
 ```
 
 Open http://localhost:8082 to browse tables and run SELECT queries. The viewer
-uses a pinned upstream sqlite-web image and opens the database read-only. It is
-available only on this machine and is excluded from ordinary Compose startup.
+starts once the app compiles, initializes the database, and serves its home page.
+If the initial build fails, the app exits and Compose leaves the viewer stopped.
+The viewer uses a pinned upstream sqlite-web image, opens the database read-only,
+and is available only on this machine.
 Set `LAVEMILL_DB_VIEWER_PORT` in your shell to override port 8082.
 
 ```sh
@@ -24,12 +25,11 @@ docker compose logs sqlite-web
 docker compose stop sqlite-web
 ```
 
-Stopping the viewer leaves the app running. If the database does not exist,
-the viewer fails without creating it; start the app, then start the viewer again.
-Currently only the empty `schema_migrations` table appears: the pages still use
-mock data. The shared volume is writable so SQLite can create WAL coordination
-files, but the viewer's database connection rejects edits. No authentication is
-configured; keep this development tool bound to localhost.
+Stopping the viewer leaves the app running. Use `docker compose up app` to start
+only the app. The app pages still use mock data, so the viewer shows only the
+empty `schema_migrations` table. The shared volume is writable so SQLite can create
+WAL coordination files, but the viewer's database connection rejects edits. No
+authentication is configured; keep this development tool bound to localhost.
 
 ### Storage and migrations
 
@@ -54,10 +54,10 @@ increasing and never edit an applied migration. SQL must not contain transaction
 control: the runner wraps all pending migrations and ledger entries in one
 immediate transaction. Unknown or non-prefix database histories fail startup.
 
-For an isolated persistence check, use a separate Compose project (and an unused
-port, e.g. set `LAVEMILL_PORT=8081` in your shell). Build/start it with
-`docker compose -p lavemill-sqlite-check up --build -d`. Wait for compilation and
-confirm its home page loads before running:
+For an isolated persistence check, use a separate Compose project and unused ports
+(e.g. set `LAVEMILL_PORT=8081` and `LAVEMILL_DB_VIEWER_PORT=8083` in your shell).
+Build/start it with `docker compose -p lavemill-sqlite-check up --build -d`. Wait
+for compilation and confirm its home page loads before running:
 
 ```sh
 docker compose -p lavemill-sqlite-check exec app sqlite3 /data/lavemill.sqlite3 "CREATE TABLE persistence_check(value TEXT); INSERT INTO persistence_check VALUES ('survived');"
@@ -81,8 +81,9 @@ docker compose build
 docker compose up
 ```
 
-Open http://localhost:8080 once the app finishes compiling. The first build takes
-a while. Source edits are picked up while it's running.
+Open the app at http://localhost:8080 and the SQLite viewer at http://localhost:8082
+once the app finishes compiling and initializes the database. The first build
+takes a while. Source edits are picked up while the app is running.
 
 `Cargo.lock` is included. If it ever needs generating from scratch:
 
