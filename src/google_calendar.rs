@@ -20,6 +20,8 @@ use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 use url::Url;
 
+mod agenda;
+
 const CALLBACK_PATH: &str = "/calendar/google/callback";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const CALENDAR_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me/calendarList";

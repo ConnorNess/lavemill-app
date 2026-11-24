@@ -1,3 +1,4 @@
+use crate::{CardHeading, Route};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -25,18 +26,107 @@ pub struct CalendarChoice {
     pub name: String,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct Agenda {
+    pub has_shared_calendars: bool,
+    pub incomplete: bool,
+    pub days: Vec<AgendaDay>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct AgendaDay {
+    pub date: String,
+    pub label: String,
+    pub entries: Vec<AgendaEntry>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct AgendaEntry {
+    pub title: String,
+    pub when: String,
+}
+
 #[get("/api/calendar/connection")]
 async fn connection_status() -> Result<ConnectionStatus, ServerFnError> {
-    use crate::{auth::Viewer, google_calendar::GoogleCalendar};
-    let context = dioxus::fullstack::FullstackContext::current()
-        .ok_or_else(|| ServerFnError::new("Sign in to manage your calendar."))?;
-    let viewer: Viewer = context
-        .extension()
-        .ok_or_else(|| ServerFnError::new("Sign in to manage your calendar."))?;
-    let Some(google) = context.extension::<GoogleCalendar>() else {
+    let (viewer, google) = calendar_context()?;
+    let Some(google) = google else {
         return Ok(ConnectionStatus::Unavailable);
     };
     google.status(viewer.id).await.map_err(ServerFnError::new)
+}
+
+#[get("/api/calendar/agenda")]
+async fn shared_agenda() -> Result<Option<Agenda>, ServerFnError> {
+    let (_, google) = calendar_context()?;
+    let Some(google) = google else {
+        return Ok(None);
+    };
+    google
+        .weekly_agenda()
+        .await
+        .map(Some)
+        .map_err(ServerFnError::new)
+}
+
+#[cfg(feature = "server")]
+fn calendar_context() -> Result<
+    (
+        crate::auth::Viewer,
+        Option<crate::google_calendar::GoogleCalendar>,
+    ),
+    ServerFnError,
+> {
+    let context = dioxus::fullstack::FullstackContext::current()
+        .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
+    let viewer = context
+        .extension()
+        .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
+    Ok((viewer, context.extension()))
+}
+
+#[component]
+pub fn CalendarCard() -> Element {
+    let agenda = use_server_future(shared_agenda)?;
+    let agenda = agenda.read();
+    rsx! {
+        section { class: "dashboard-card", aria_labelledby: "calendar-title",
+            CardHeading { icon: "calendar", title: "Shared Calendar", id: "calendar-title", count: "This week" }
+            div { class: "card-body agenda",
+                match agenda.as_ref() {
+                    Some(Ok(Some(agenda))) => rsx! {
+                        if agenda.incomplete {
+                            p { role: "status", "Some shared calendars could not be loaded." }
+                        }
+                        if !agenda.has_shared_calendars {
+                            p { "Your household hasn’t shared a calendar yet." }
+                            Link { to: Route::Calendar { notice: None }, "Connect a calendar" }
+                        } else if agenda.days.is_empty() && !agenda.incomplete {
+                            p { "No shared events this week." }
+                        }
+                        for day in &agenda.days {
+                            section { key: "{day.date}", class: "agenda-group",
+                                h3 { class: "agenda-date", "{day.label}", span { "{day.date}" } }
+                                ul { class: "item-list",
+                                    for (index, entry) in day.entries.iter().enumerate() {
+                                        li { key: "{index}", class: "agenda-row",
+                                            span { class: "agenda-marker", aria_hidden: "true" }
+                                            div { class: "row-copy",
+                                                span { class: "row-title", "{entry.title}" }
+                                                span { class: "row-note", "{entry.when}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    Some(Ok(None)) => rsx! { p { "Google Calendar linking is unavailable on this server." } },
+                    Some(Err(_)) => rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } },
+                    None => rsx! { p { "Loading the shared calendar…" } },
+                }
+            }
+        }
+    }
 }
 
 #[component]

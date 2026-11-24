@@ -107,3 +107,8 @@ Keep the key across deployments and backups. Changing it means members must
 reconnect. With all three settings unset, calendar linking is disabled.
 For an external OAuth app in Testing, add each Google account as a test user.
 Google refresh tokens for Calendar expire after seven days in Testing mode.
+
+Open **Calendar** in Lavemill to connect Google and save a calendar selection.
+Select **Share with household** to show its current week on Home. Events marked
+private appear as Busy. Use **Stop sharing** to remove the calendar from Home
+while keeping it connected.

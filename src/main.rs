@@ -4,9 +4,11 @@ mod accounts;
 mod auth;
 use auth::Login;
 mod calendar;
-use calendar::Calendar;
+use calendar::{Calendar, CalendarCard};
 #[cfg(feature = "server")]
 mod google_calendar;
+#[cfg(feature = "server")]
+mod household_time;
 mod users;
 use users::Users;
 #[cfg(feature = "server")]
@@ -170,41 +172,6 @@ fn StatusMark(done: bool) -> Element {
             if done { Icon { kind: "check" } }
         }
         span { class: "sr-only", if done { "Completed: " } else { "Open: " } }
-    }
-}
-
-#[component]
-fn CalendarCard() -> Element {
-    rsx! {
-        section { class: "dashboard-card", aria_labelledby: "calendar-title",
-            CardHeading { icon: "calendar", title: "Shared Calendar", id: "calendar-title", count: "This week" }
-            div { class: "card-body agenda",
-                section { class: "agenda-group", aria_labelledby: "agenda-today",
-                    h3 { id: "agenda-today", class: "agenda-date", "Today", span { "23 Nov" } }
-                    ul { class: "item-list",
-                        AgendaRow { title: "Family dinner" }
-                    }
-                }
-                section { class: "agenda-group", aria_labelledby: "agenda-saturday",
-                    h3 { id: "agenda-saturday", class: "agenda-date", "Saturday", span { "28 Nov" } }
-                    ul { class: "item-list",
-                        AgendaRow { title: "Gramps visiting" }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn AgendaRow(title: &'static str) -> Element {
-    rsx! {
-        li { class: "agenda-row",
-            span { class: "agenda-marker", aria_hidden: "true" }
-            div { class: "row-copy",
-                span { class: "row-title", "{title}" }
-            }
-        }
     }
 }
 
