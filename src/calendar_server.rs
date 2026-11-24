@@ -4,11 +4,11 @@ use crate::{
         server::{connection, now, run_blocking, SessionHash},
         Viewer,
     },
-    calendar::{CalendarChoice, CalendarChoices, ConnectionStatus},
+    calendar::{CalendarChoice, CalendarChoices, ConnectionStatus, Provider},
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use dioxus::server::axum::{
-    extract::{Extension, Query},
+    extract::{Extension, Path, Query},
     http::{header, HeaderMap},
     response::Redirect,
     Form,
@@ -22,19 +22,20 @@ use url::Url;
 
 mod agenda;
 
-const CALLBACK_PATH: &str = "/calendar/google/callback";
-const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const CALENDAR_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
-const SCOPES: &str = "https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly";
-const GOOGLE: &str = "google";
+const GOOGLE_SCOPES: &str = "https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly";
+const OUTLOOK_SCOPES: &str = "https://graph.microsoft.com/Calendars.ReadBasic offline_access";
+const OUTLOOK_TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 const ATTEMPT_SECONDS: i64 = 10 * 60;
 const NONCE_BYTES: usize = 12;
-const CONNECTION_ERROR: &str = "Could not protect your Google Calendar connection.";
+const CONNECTION_ERROR: &str = "Could not protect your calendar connection.";
 
 #[derive(Clone)]
-pub struct GoogleCalendar(Arc<Config>);
+pub struct CalendarClient(Arc<Config>);
 
 struct Config {
+    provider: Provider,
     origin: String,
     client_id: String,
     client_secret: String,
@@ -49,25 +50,56 @@ struct LinkedCalendar {
     shared: bool,
 }
 
-enum GoogleError {
+enum ProviderError {
     Reconnect,
     Unavailable,
 }
 
-impl GoogleCalendar {
-    pub fn configured(origin: &str) -> Result<Option<Self>, &'static str> {
-        let read = |name| std::env::var(name).ok().filter(|value| !value.is_empty());
-        let settings = (
-            read("LAVEMILL_GOOGLE_CLIENT_ID"),
-            read("LAVEMILL_GOOGLE_CLIENT_SECRET"),
-            read("LAVEMILL_GOOGLE_TOKEN_KEY"),
-        );
+#[derive(Clone)]
+pub struct CalendarClients {
+    pub google: Option<CalendarClient>,
+    pub outlook: Option<CalendarClient>,
+}
+
+impl CalendarClients {
+    pub fn configured(origin: &str) -> Result<Self, &'static str> {
+        let google = CalendarClient::configured(origin, Provider::Google)?;
+        let outlook =
+            CalendarClient::configured(origin, Provider::Outlook).unwrap_or_else(|error| {
+                eprintln!("Outlook Calendar is unavailable: {error}");
+                None
+            });
+        Ok(Self { google, outlook })
+    }
+
+    pub fn get(&self, provider: Provider) -> Option<&CalendarClient> {
+        match provider {
+            Provider::Google => self.google.as_ref(),
+            Provider::Outlook => self.outlook.as_ref(),
+        }
+    }
+}
+
+impl CalendarClient {
+    fn configured(origin: &str, provider: Provider) -> Result<Option<Self>, &'static str> {
+        let prefix = match provider {
+            Provider::Google => "LAVEMILL_GOOGLE",
+            Provider::Outlook => "LAVEMILL_OUTLOOK",
+        };
+        let read = |suffix| {
+            std::env::var(format!("{prefix}_{suffix}"))
+                .ok()
+                .filter(|value| !value.is_empty())
+        };
+        let settings = (read("CLIENT_ID"), read("CLIENT_SECRET"), read("TOKEN_KEY"));
         let (client_id, client_secret, token_key) = match settings {
             (Some(id), Some(secret), Some(key)) => (id, secret, key),
             (None, None, None) => return Ok(None),
-            _ => return Err("Configure all three LAVEMILL_GOOGLE settings to enable Calendar."),
+            _ => return Err(
+                "Set the client ID, client secret, and token key to enable this calendar provider.",
+            ),
         };
-        let key_error = "LAVEMILL_GOOGLE_TOKEN_KEY must be 32 bytes encoded as unpadded base64url.";
+        let key_error = "The calendar token key must be 32 bytes encoded as unpadded base64url.";
         let key = URL_SAFE_NO_PAD.decode(token_key).map_err(|_| key_error)?;
         let token_key = UnboundKey::new(&aead::AES_256_GCM, &key).map_err(|_| key_error)?;
         let http = reqwest::Client::builder()
@@ -75,8 +107,9 @@ impl GoogleCalendar {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(8))
             .build()
-            .map_err(|_| "Could not initialize the Google Calendar HTTP client.")?;
+            .map_err(|_| "Could not initialize the Calendar HTTP client.")?;
         Ok(Some(Self(Arc::new(Config {
+            provider,
             origin: origin.to_owned(),
             client_id,
             client_secret,
@@ -86,13 +119,13 @@ impl GoogleCalendar {
     }
 
     pub async fn status(&self, user: i64) -> Result<ConnectionStatus, &'static str> {
-        let Some(link) = linked_calendar(GOOGLE, user).await? else {
+        let Some(link) = linked_calendar(self.0.provider.key(), user).await? else {
             return Ok(ConnectionStatus::Disconnected);
         };
-        let choices = match self.calendar_choices(user, &link.token).await {
+        let choices = match self.calendar_choices(user, &link).await {
             Ok(choices) => CalendarChoices::Available(choices),
-            Err(GoogleError::Reconnect) => CalendarChoices::Reconnect,
-            Err(GoogleError::Unavailable) => CalendarChoices::Unavailable,
+            Err(ProviderError::Reconnect) => CalendarChoices::Reconnect,
+            Err(ProviderError::Unavailable) => CalendarChoices::Unavailable,
         };
         Ok(ConnectionStatus::Connected {
             selected: link.calendar_id,
@@ -101,10 +134,16 @@ impl GoogleCalendar {
         })
     }
 
-    async fn access_token(&self, user: i64, sealed: &[u8]) -> Result<String, GoogleError> {
+    async fn access_token(
+        &self,
+        user: i64,
+        connection_id: &[u8],
+        sealed: &[u8],
+    ) -> Result<String, ProviderError> {
         #[derive(Deserialize)]
         struct Token {
             access_token: String,
+            refresh_token: Option<String>,
         }
         #[derive(Deserialize)]
         struct TokenError {
@@ -115,7 +154,7 @@ impl GoogleCalendar {
         let response = self
             .0
             .http
-            .post(TOKEN_URL)
+            .post(self.token_url())
             .form(&[
                 ("client_id", self.0.client_id.as_str()),
                 ("client_secret", self.0.client_secret.as_str()),
@@ -124,27 +163,46 @@ impl GoogleCalendar {
             ])
             .send()
             .await
-            .map_err(|_| GoogleError::Unavailable)?;
+            .map_err(|_| ProviderError::Unavailable)?;
         if response.status() == reqwest::StatusCode::BAD_REQUEST {
             return Err(match response.json::<TokenError>().await {
-                Ok(error) if error.error == "invalid_grant" => GoogleError::Reconnect,
-                _ => GoogleError::Unavailable,
+                Ok(error) if error.error == "invalid_grant" => ProviderError::Reconnect,
+                _ => ProviderError::Unavailable,
             });
         }
         let token: Token = response
             .error_for_status()
-            .map_err(|_| GoogleError::Unavailable)?
+            .map_err(|_| ProviderError::Unavailable)?
             .json()
             .await
-            .map_err(|_| GoogleError::Unavailable)?;
+            .map_err(|_| ProviderError::Unavailable)?;
+        if self.0.provider == Provider::Outlook {
+            if let Some(replacement) = token.refresh_token.filter(|value| !value.is_empty()) {
+                let replacement = encrypt_token(&self.0.token_key, user, &replacement)
+                    .map_err(|_| ProviderError::Unavailable)?;
+                let previous = sealed.to_vec();
+                let connection_id = connection_id.to_vec();
+                run_blocking(move || {
+                    replace_outlook_token(
+                        &connection()?,
+                        user,
+                        &connection_id,
+                        &previous,
+                        &replacement,
+                    )
+                })
+                .await
+                .map_err(|_| ProviderError::Unavailable)?;
+            }
+        }
         Ok(token.access_token)
     }
 
     async fn calendar_choices(
         &self,
         user: i64,
-        sealed: &[u8],
-    ) -> Result<Vec<CalendarChoice>, GoogleError> {
+        link: &LinkedCalendar,
+    ) -> Result<Vec<CalendarChoice>, ProviderError> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Page {
@@ -161,7 +219,28 @@ impl GoogleCalendar {
             access_role: String,
         }
 
-        let access_token = self.access_token(user, sealed).await?;
+        let access_token = self.access_token(user, &link.id, &link.token).await?;
+        if self.0.provider == Provider::Outlook {
+            #[derive(Deserialize)]
+            struct OutlookChoice {
+                id: String,
+                name: String,
+            }
+
+            let mut url = Url::parse("https://graph.microsoft.com/v1.0/me/calendars")
+                .expect("Graph calendar URL is valid");
+            url.query_pairs_mut().append_pair("$select", "id,name");
+            let calendars = self
+                .graph_collection::<OutlookChoice>(url, &access_token)
+                .await?;
+            return Ok(calendars
+                .into_iter()
+                .map(|choice| CalendarChoice {
+                    id: choice.id,
+                    name: choice.name,
+                })
+                .collect());
+        }
         let mut choices = Vec::new();
         let mut page_token = None;
         loop {
@@ -181,10 +260,10 @@ impl GoogleCalendar {
                 .send()
                 .await
                 .and_then(reqwest::Response::error_for_status)
-                .map_err(|_| GoogleError::Unavailable)?
+                .map_err(|_| ProviderError::Unavailable)?
                 .json()
                 .await
-                .map_err(|_| GoogleError::Unavailable)?;
+                .map_err(|_| ProviderError::Unavailable)?;
             choices.extend(page.items.into_iter().filter_map(|choice| {
                 matches!(
                     choice.access_role.as_str(),
@@ -203,25 +282,92 @@ impl GoogleCalendar {
         Ok(choices)
     }
 
+    async fn graph_collection<T: serde::de::DeserializeOwned>(
+        &self,
+        mut url: Url,
+        access_token: &str,
+    ) -> Result<Vec<T>, ProviderError> {
+        #[derive(Deserialize)]
+        struct Page<T> {
+            value: Vec<T>,
+            #[serde(rename = "@odata.nextLink")]
+            next_link: Option<String>,
+        }
+
+        let mut values = Vec::new();
+        loop {
+            if !is_graph_url(&url) {
+                return Err(ProviderError::Unavailable);
+            }
+            let page: Page<T> = self
+                .0
+                .http
+                .get(url)
+                .bearer_auth(access_token)
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status)
+                .map_err(|_| ProviderError::Unavailable)?
+                .json()
+                .await
+                .map_err(|_| ProviderError::Unavailable)?;
+            values.extend(page.value);
+            let Some(next) = page.next_link else {
+                return Ok(values);
+            };
+            url = Url::parse(&next).map_err(|_| ProviderError::Unavailable)?;
+        }
+    }
+
+    fn token_url(&self) -> &'static str {
+        match self.0.provider {
+            Provider::Google => GOOGLE_TOKEN_URL,
+            Provider::Outlook => OUTLOOK_TOKEN_URL,
+        }
+    }
+
+    fn scopes(&self) -> &'static str {
+        match self.0.provider {
+            Provider::Google => GOOGLE_SCOPES,
+            Provider::Outlook => OUTLOOK_SCOPES,
+        }
+    }
+
     fn authorization_url(&self, state: &str, verifier: &str) -> Url {
-        let mut url = Url::parse("https://accounts.google.com/o/oauth2/v2/auth")
-            .expect("Google authorization URL is valid");
+        let authorization_url = match self.0.provider {
+            Provider::Google => "https://accounts.google.com/o/oauth2/v2/auth",
+            Provider::Outlook => {
+                "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
+            }
+        };
+        let mut url = Url::parse(authorization_url).expect("Calendar authorization URL is valid");
         url.query_pairs_mut().extend_pairs([
             ("client_id", self.0.client_id.as_str()),
             ("redirect_uri", &self.callback_url()),
             ("response_type", "code"),
-            ("scope", SCOPES),
-            ("access_type", "offline"),
-            ("prompt", "consent select_account"),
+            ("scope", self.scopes()),
             ("state", state),
             ("code_challenge", &URL_SAFE_NO_PAD.encode(hash(verifier))),
             ("code_challenge_method", "S256"),
         ]);
+        match self.0.provider {
+            Provider::Google => url.query_pairs_mut().extend_pairs([
+                ("access_type", "offline"),
+                ("prompt", "consent select_account"),
+            ]),
+            Provider::Outlook => url
+                .query_pairs_mut()
+                .extend_pairs([("response_mode", "query"), ("prompt", "select_account")]),
+        };
         url
     }
 
     fn callback_url(&self) -> String {
-        format!("{}{CALLBACK_PATH}", self.0.origin)
+        format!(
+            "{}/calendar/{}/callback",
+            self.0.origin,
+            self.0.provider.key()
+        )
     }
 
     async fn exchange_code(&self, code: &str, verifier: &str) -> Result<String, &'static str> {
@@ -231,11 +377,11 @@ impl GoogleCalendar {
             scope: String,
         }
 
-        let error = "Could not authorize Google Calendar.";
+        let error = "Could not authorize the calendar provider.";
         let token: Token = self
             .0
             .http
-            .post(TOKEN_URL)
+            .post(self.token_url())
             .form(&[
                 ("client_id", self.0.client_id.as_str()),
                 ("client_secret", self.0.client_secret.as_str()),
@@ -251,14 +397,7 @@ impl GoogleCalendar {
             .json()
             .await
             .map_err(|_| error)?;
-        if token.refresh_token.is_empty()
-            || !SCOPES.split_whitespace().all(|scope| {
-                token
-                    .scope
-                    .split_whitespace()
-                    .any(|granted| granted == scope)
-            })
-        {
+        if token.refresh_token.is_empty() || !has_calendar_scope(self.0.provider, &token.scope) {
             return Err(error);
         }
         Ok(token.refresh_token)
@@ -266,20 +405,21 @@ impl GoogleCalendar {
 }
 
 pub async fn connect(
+    Path(provider): Path<Provider>,
     Extension(viewer): Extension<Viewer>,
     Extension(session): Extension<SessionHash>,
-    google: Option<Extension<GoogleCalendar>>,
+    Extension(clients): Extension<CalendarClients>,
     headers: HeaderMap,
 ) -> Redirect {
-    let Some(Extension(google)) = google else {
-        return calendar("failed");
+    let Some(client) = clients.get(provider) else {
+        return calendar(provider, "failed");
     };
     if headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
-        != Some(google.0.origin.as_str())
+        != Some(client.0.origin.as_str())
     {
-        return calendar("origin");
+        return calendar(provider, "origin");
     }
     let Ok((state, verifier)) = random_bytes::<32>().and_then(|state| {
         Ok((
@@ -287,13 +427,13 @@ pub async fn connect(
             URL_SAFE_NO_PAD.encode(random_bytes::<32>()?),
         ))
     }) else {
-        return calendar("failed");
+        return calendar(provider, "failed");
     };
-    let url = google.authorization_url(&state, &verifier);
+    let url = client.authorization_url(&state, &verifier);
     let saved = run_blocking(move || {
         start_attempt(
             &connection()?,
-            GOOGLE,
+            provider.key(),
             viewer.id,
             session,
             &state,
@@ -303,7 +443,7 @@ pub async fn connect(
     .await;
     match saved {
         Ok(_) => Redirect::to(url.as_str()),
-        Err(_) => calendar("failed"),
+        Err(_) => calendar(provider, "failed"),
     }
 }
 
@@ -315,46 +455,55 @@ pub struct Callback {
 }
 
 pub async fn callback(
+    Path(provider): Path<Provider>,
     Extension(viewer): Extension<Viewer>,
     Extension(session): Extension<SessionHash>,
-    google: Option<Extension<GoogleCalendar>>,
+    Extension(clients): Extension<CalendarClients>,
     Query(query): Query<Callback>,
 ) -> Redirect {
-    let (Some(Extension(google)), Some(state)) = (google, query.state) else {
-        return calendar("failed");
+    let (Some(client), Some(state)) = (clients.get(provider), query.state) else {
+        return calendar(provider, "failed");
     };
     let user = viewer.id;
     let state = hash(&state);
     let Ok(Some(verifier)) =
-        run_blocking(move || claim_attempt(&connection()?, GOOGLE, user, session, state)).await
+        run_blocking(move || claim_attempt(&connection()?, provider.key(), user, session, state))
+            .await
     else {
-        return calendar("failed");
+        return calendar(provider, "failed");
     };
     if query.error.as_deref() == Some("access_denied") {
-        return calendar("cancelled");
+        return calendar(provider, "cancelled");
     }
     let Some(code) = query.code else {
-        return calendar("failed");
+        return calendar(provider, "failed");
     };
-    let Ok(token) = google
+    let Ok(token) = client
         .exchange_code(&code, &verifier)
         .await
-        .and_then(|token| encrypt_token(&google.0.token_key, user, &token))
+        .and_then(|token| encrypt_token(&client.0.token_key, user, &token))
     else {
-        return calendar("failed");
+        return calendar(provider, "failed");
     };
-    match run_blocking(move || save_connection(&mut connection()?, GOOGLE, user, state, &token))
-        .await
+    match run_blocking(move || {
+        save_connection(&mut connection()?, provider.key(), user, state, &token)
+    })
+    .await
     {
-        Ok(true) => calendar("connected"),
-        _ => calendar("failed"),
+        Ok(true) => calendar(provider, "connected"),
+        _ => calendar(provider, "failed"),
     }
 }
 
-pub async fn disconnect(Extension(viewer): Extension<Viewer>) -> Redirect {
-    match run_blocking(move || remove_connection(&mut connection()?, GOOGLE, viewer.id)).await {
-        Ok(()) => calendar("disconnected"),
-        Err(_) => calendar("failed"),
+pub async fn disconnect(
+    Path(provider): Path<Provider>,
+    Extension(viewer): Extension<Viewer>,
+) -> Redirect {
+    match run_blocking(move || remove_connection(&mut connection()?, provider.key(), viewer.id))
+        .await
+    {
+        Ok(()) => calendar(provider, "disconnected"),
+        Err(_) => calendar(provider, "failed"),
     }
 }
 
@@ -364,27 +513,30 @@ pub struct CalendarSelection {
 }
 
 pub async fn select(
+    Path(provider): Path<Provider>,
     Extension(viewer): Extension<Viewer>,
-    google: Option<Extension<GoogleCalendar>>,
+    Extension(clients): Extension<CalendarClients>,
     Form(selection): Form<CalendarSelection>,
 ) -> Redirect {
-    let (Some(Extension(google)), Ok(Some(link))) =
-        (google, linked_calendar(GOOGLE, viewer.id).await)
-    else {
-        return calendar("failed");
+    let (Some(client), Ok(Some(link))) = (
+        clients.get(provider),
+        linked_calendar(provider.key(), viewer.id).await,
+    ) else {
+        return calendar(provider, "failed");
     };
     let id = selection.calendar_id;
-    match google.calendar_choices(viewer.id, &link.token).await {
+    match client.calendar_choices(viewer.id, &link).await {
         Ok(choices) if choices.iter().any(|choice| choice.id == id) => {}
-        Err(GoogleError::Reconnect) => return calendar("reconnect"),
-        _ => return calendar("selection_failed"),
+        Err(ProviderError::Reconnect) => return calendar(provider, "reconnect"),
+        _ => return calendar(provider, "selection_failed"),
     }
     let user = viewer.id;
     let changed =
-        run_blocking(move || save_selection(&connection()?, GOOGLE, user, &link.id, &id)).await;
+        run_blocking(move || save_selection(&connection()?, provider.key(), user, &link.id, &id))
+            .await;
     match changed {
-        Ok(true) => calendar("selected"),
-        _ => calendar("selection_failed"),
+        Ok(true) => calendar(provider, "selected"),
+        _ => calendar(provider, "selection_failed"),
     }
 }
 
@@ -395,23 +547,30 @@ pub struct CalendarSharing {
 }
 
 pub async fn share(
+    Path(provider): Path<Provider>,
     Extension(viewer): Extension<Viewer>,
-    google: Option<Extension<GoogleCalendar>>,
+    Extension(clients): Extension<CalendarClients>,
     Form(sharing): Form<CalendarSharing>,
 ) -> Redirect {
-    if sharing.shared && google.is_none() {
-        return calendar("failed");
+    if sharing.shared && clients.get(provider).is_none() {
+        return calendar(provider, "failed");
     }
     let user = viewer.id;
     let shared = sharing.shared;
     let saved = run_blocking(move || {
-        set_shared(&connection()?, GOOGLE, user, &sharing.calendar_id, shared)
+        set_shared(
+            &connection()?,
+            provider.key(),
+            user,
+            &sharing.calendar_id,
+            shared,
+        )
     })
     .await;
     match saved {
-        Ok(true) if shared => calendar("shared"),
-        Ok(true) => calendar("unshared"),
-        _ => calendar("selection_failed"),
+        Ok(true) if shared => calendar(provider, "shared"),
+        Ok(true) => calendar(provider, "unshared"),
+        _ => calendar(provider, "selection_failed"),
     }
 }
 
@@ -553,16 +712,16 @@ fn encrypt_token(key: &LessSafeKey, user: i64, token: &str) -> Result<Vec<u8>, &
     Ok(stored)
 }
 
-fn decrypt_token(key: &LessSafeKey, user: i64, stored: &[u8]) -> Result<String, GoogleError> {
+fn decrypt_token(key: &LessSafeKey, user: i64, stored: &[u8]) -> Result<String, ProviderError> {
     let (nonce, sealed) = stored
         .split_at_checked(NONCE_BYTES)
-        .ok_or(GoogleError::Reconnect)?;
-    let nonce = Nonce::try_assume_unique_for_key(nonce).map_err(|_| GoogleError::Reconnect)?;
+        .ok_or(ProviderError::Reconnect)?;
+    let nonce = Nonce::try_assume_unique_for_key(nonce).map_err(|_| ProviderError::Reconnect)?;
     let mut sealed = sealed.to_vec();
     let plaintext = key
         .open_in_place(nonce, Aad::from(user.to_be_bytes()), &mut sealed)
-        .map_err(|_| GoogleError::Reconnect)?;
-    String::from_utf8(plaintext.to_vec()).map_err(|_| GoogleError::Reconnect)
+        .map_err(|_| ProviderError::Reconnect)?;
+    String::from_utf8(plaintext.to_vec()).map_err(|_| ProviderError::Reconnect)
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N], &'static str> {
@@ -575,13 +734,55 @@ fn hash(value: &str) -> [u8; 32] {
     Sha256::digest(value.as_bytes()).into()
 }
 
-fn calendar(notice: &str) -> Redirect {
-    Redirect::to(&format!("/calendar?notice={notice}"))
+fn calendar(provider: Provider, notice: &str) -> Redirect {
+    match provider {
+        Provider::Google => Redirect::to(&format!("/calendar?notice={notice}")),
+        Provider::Outlook => Redirect::to(&format!("/calendar?notice=outlook_{notice}")),
+    }
+}
+
+fn is_graph_url(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.host_str() == Some("graph.microsoft.com")
+        && url.port_or_known_default() == Some(443)
+        && url.username().is_empty()
+        && url.password().is_none()
+}
+
+fn has_calendar_scope(provider: Provider, granted: &str) -> bool {
+    match provider {
+        Provider::Google => GOOGLE_SCOPES
+            .split_whitespace()
+            .all(|scope| granted.split_whitespace().any(|value| scope == value)),
+        Provider::Outlook => granted.split_whitespace().any(|value| {
+            value
+                .rsplit('/')
+                .next()
+                .is_some_and(|scope| scope.eq_ignore_ascii_case("Calendars.ReadBasic"))
+        }),
+    }
+}
+
+fn replace_outlook_token(
+    db: &Connection,
+    user: i64,
+    id: &[u8],
+    previous: &[u8],
+    replacement: &[u8],
+) -> Result<bool, &'static str> {
+    db.execute(
+        "UPDATE calendar_connections SET refresh_token = ?4
+         WHERE user_id = ?1 AND provider = 'outlook' AND id = ?2 AND refresh_token = ?3",
+        params![user, id, previous, replacement],
+    )
+    .map(|rows| rows == 1)
+    .map_err(database_error)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    const GOOGLE: &str = "google";
     use crate::database;
 
     #[test]
@@ -676,6 +877,58 @@ mod tests {
         assert!(set_shared(&db, GOOGLE, 1, "personal", false).unwrap());
         assert!(!shared());
 
+        let outlook = Provider::Outlook.key();
+        let cancelled = "cancelled outlook authorization";
+        start_attempt(&db, outlook, 1, session, cancelled, "verifier").unwrap();
+        assert!(claim_attempt(&db, outlook, 1, session, hash(cancelled))
+            .unwrap()
+            .is_some());
+        assert!(claim_attempt(&db, outlook, 1, session, hash(cancelled))
+            .unwrap()
+            .is_none());
+        let outlook_state = "outlook authorization";
+        start_attempt(&db, outlook, 1, session, outlook_state, "verifier").unwrap();
+        assert!(claim_attempt(&db, outlook, 1, session, hash(outlook_state))
+            .unwrap()
+            .is_some());
+        assert!(save_connection(
+            &mut db,
+            outlook,
+            1,
+            hash(outlook_state),
+            b"initial outlook token"
+        )
+        .unwrap());
+        let outlook_id: Vec<u8> = db
+            .query_row(
+                "SELECT id FROM calendar_connections WHERE user_id = 1 AND provider = 'outlook'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(replace_outlook_token(
+            &db,
+            1,
+            &outlook_id,
+            b"initial outlook token",
+            b"replacement"
+        )
+        .unwrap());
+        assert!(!replace_outlook_token(
+            &db,
+            1,
+            &outlook_id,
+            b"initial outlook token",
+            b"late replacement"
+        )
+        .unwrap());
+        remove_connection(&mut db, outlook, 1).unwrap();
+        assert!(
+            !replace_outlook_token(&db, 1, &outlook_id, b"replacement", b"late replacement")
+                .unwrap()
+        );
+        assert!(set_shared(&db, GOOGLE, 1, "personal", true).unwrap());
+
         start(&db);
         assert!(claim_attempt(&db, GOOGLE, 1, session, state)
             .unwrap()
@@ -691,6 +944,22 @@ mod tests {
     }
 
     #[test]
+    fn outlook_accepts_only_the_calendar_grant_and_graph_origin() {
+        assert!(has_calendar_scope(Provider::Outlook, "Calendars.ReadBasic"));
+        assert!(has_calendar_scope(
+            Provider::Outlook,
+            "https://graph.microsoft.com/Calendars.ReadBasic"
+        ));
+        assert!(!has_calendar_scope(Provider::Outlook, "offline_access"));
+        assert!(is_graph_url(
+            &Url::parse("https://graph.microsoft.com/v1.0/me/calendars").unwrap()
+        ));
+        assert!(!is_graph_url(
+            &Url::parse("https://graph.microsoft.com.evil.invalid/v1.0/me/calendars").unwrap()
+        ));
+    }
+
+    #[test]
     fn refresh_token_is_encrypted_for_its_owner() {
         let key = LessSafeKey::new(UnboundKey::new(&aead::AES_256_GCM, &[8; 32]).unwrap());
         let stored = encrypt_token(&key, 42, "refresh token").unwrap();
@@ -701,7 +970,7 @@ mod tests {
         );
         assert!(matches!(
             decrypt_token(&key, 43, &stored),
-            Err(GoogleError::Reconnect)
+            Err(ProviderError::Reconnect)
         ));
     }
 }

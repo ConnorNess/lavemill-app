@@ -6,7 +6,7 @@ use auth::Login;
 mod calendar;
 use calendar::{Calendar, CalendarCard};
 #[cfg(feature = "server")]
-mod google_calendar;
+mod calendar_server;
 #[cfg(feature = "server")]
 mod household_time;
 mod users;

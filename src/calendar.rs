@@ -2,6 +2,29 @@ use crate::{CardHeading, Route};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    Google,
+    Outlook,
+}
+
+impl Provider {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Google => "google",
+            Self::Outlook => "outlook",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Google => "Google Calendar",
+            Self::Outlook => "Outlook",
+        }
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub enum ConnectionStatus {
     Unavailable,
@@ -48,17 +71,27 @@ pub struct AgendaEntry {
 
 #[get("/api/calendar/connection")]
 async fn connection_status() -> Result<ConnectionStatus, ServerFnError> {
-    let (viewer, google) = calendar_context()?;
-    let Some(google) = google else {
+    provider_status(Provider::Google).await
+}
+
+#[get("/api/calendar/outlook/connection")]
+async fn outlook_status() -> Result<ConnectionStatus, ServerFnError> {
+    provider_status(Provider::Outlook).await
+}
+
+#[cfg(feature = "server")]
+async fn provider_status(provider: Provider) -> Result<ConnectionStatus, ServerFnError> {
+    let (viewer, clients) = calendar_context()?;
+    let Some(client) = clients.get(provider) else {
         return Ok(ConnectionStatus::Unavailable);
     };
-    google.status(viewer.id).await.map_err(ServerFnError::new)
+    client.status(viewer.id).await.map_err(ServerFnError::new)
 }
 
 #[get("/api/calendar/agenda")]
 async fn shared_agenda() -> Result<Option<Agenda>, ServerFnError> {
-    let (_, google) = calendar_context()?;
-    let Some(google) = google else {
+    let (_, clients) = calendar_context()?;
+    let Some(google) = clients.google else {
         return Ok(None);
     };
     google
@@ -69,19 +102,17 @@ async fn shared_agenda() -> Result<Option<Agenda>, ServerFnError> {
 }
 
 #[cfg(feature = "server")]
-fn calendar_context() -> Result<
-    (
-        crate::auth::Viewer,
-        Option<crate::google_calendar::GoogleCalendar>,
-    ),
-    ServerFnError,
-> {
+fn calendar_context(
+) -> Result<(crate::auth::Viewer, crate::calendar_server::CalendarClients), ServerFnError> {
     let context = dioxus::fullstack::FullstackContext::current()
         .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
     let viewer = context
         .extension()
         .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
-    Ok((viewer, context.extension()))
+    let clients = context
+        .extension()
+        .ok_or_else(|| ServerFnError::new("Calendar is unavailable."))?;
+    Ok((viewer, clients))
 }
 
 #[component]
@@ -131,44 +162,70 @@ pub fn CalendarCard() -> Element {
 
 #[component]
 pub fn Calendar(notice: Option<String>) -> Element {
-    let status = use_server_future(connection_status)?;
-    let status = status.read();
-    let message = match notice.as_deref() {
-        Some("connected") => Some("Google Calendar connected."),
-        Some("disconnected") => Some("Google Calendar disconnected."),
-        Some("cancelled") => Some("Google Calendar connection was cancelled."),
-        Some("origin") => Some("Open Lavemill at its configured address and try again."),
-        Some("failed") => Some("Could not update the Google Calendar connection. Try again."),
-        Some("reconnect") => Some("Reconnect Google Calendar to continue."),
-        Some("selected") => Some("Calendar selection saved."),
-        Some("shared") => Some("Calendar sharing is on."),
-        Some("unshared") => Some("Calendar sharing is off."),
+    let (notice_provider, notice) = match notice.as_deref() {
+        Some(notice) if notice.starts_with("outlook_") => {
+            (Provider::Outlook, notice.strip_prefix("outlook_"))
+        }
+        notice => (Provider::Google, notice),
+    };
+    let provider = notice_provider.label();
+    let message = match notice {
+        Some("connected") => Some(format!("{provider} connected.")),
+        Some("disconnected") => Some(format!("{provider} disconnected.")),
+        Some("cancelled") => Some(format!("{provider} connection was cancelled.")),
+        Some("origin") => Some("Open Lavemill at its configured address and try again.".into()),
+        Some("failed") => Some(format!(
+            "Could not update the {provider} connection. Try again."
+        )),
+        Some("reconnect") => Some(format!("Reconnect {provider} to continue.")),
+        Some("selected") => Some("Calendar selection saved.".into()),
+        Some("shared") => Some("Calendar sharing is on.".into()),
+        Some("unshared") => Some("Calendar sharing is off.".into()),
         Some("selection_failed") => {
-            Some("Could not update your calendar selection. Reload and try again.")
+            Some("Could not update your calendar selection. Reload and try again.".into())
         }
         _ => None,
     };
     rsx! {
         main { id: "main", class: "dashboard",
-            document::Title { "Lavemill · Calendar" }
+            document::Title { "Lavemill ? Calendar" }
+            h1 { "Calendar" }
+            if let Some(message) = message {
+                p { role: "status", "{message}" }
+            }
+            CalendarConnection { provider: Provider::Google }
+            CalendarConnection { provider: Provider::Outlook }
+        }
+    }
+}
+
+#[component]
+fn CalendarConnection(provider: Provider) -> Element {
+    let status = use_server_future(move || async move {
+        match provider {
+            Provider::Google => connection_status().await,
+            Provider::Outlook => outlook_status().await,
+        }
+    })?;
+    let status = status.read();
+    let name = provider.label();
+    let key = provider.key();
+    rsx! {
             section { class: "add-task-panel calendar-settings",
-                h1 { "Google Calendar" }
-                if let Some(message) = message {
-                    p { role: "status", "{message}" }
-                }
+                h2 { "{name}" }
                 match status.as_ref() {
                     Some(Ok(ConnectionStatus::Connected { selected, shared, choices })) => rsx! {
-                        CalendarSharing { selected: selected.clone(), shared: *shared, choices: choices.clone() }
-                        ConnectButton { label: "Reconnect Google Calendar" }
-                        form { action: "/calendar/google/disconnect", method: "post",
-                            button { class: "undo-button", r#type: "submit", "Disconnect Google Calendar" }
+                        CalendarSharing { provider, selected: selected.clone(), shared: *shared, choices: choices.clone() }
+                        ConnectButton { provider, reconnect: true }
+                        form { action: "/calendar/{key}/disconnect", method: "post",
+                            button { class: "undo-button", r#type: "submit", "Disconnect {name}" }
                         }
                     },
                     Some(Ok(ConnectionStatus::Disconnected)) => rsx! {
-                        ConnectButton { label: "Connect Google Calendar" }
+                        ConnectButton { provider, reconnect: false }
                     },
                     Some(Ok(ConnectionStatus::Unavailable)) => rsx! {
-                        p { "Google Calendar linking is unavailable on this server." }
+                        p { "{name} linking is unavailable on this server." }
                     },
                     Some(Err(_)) => rsx! {
                         p { role: "alert", "Could not check your calendar connection. Reload to try again." }
@@ -176,12 +233,18 @@ pub fn Calendar(notice: Option<String>) -> Element {
                     None => rsx! { p { "Checking your calendar connection…" } },
                 }
             }
-        }
     }
 }
 
 #[component]
-fn CalendarSharing(selected: Option<String>, shared: bool, choices: CalendarChoices) -> Element {
+fn CalendarSharing(
+    provider: Provider,
+    selected: Option<String>,
+    shared: bool,
+    choices: CalendarChoices,
+) -> Element {
+    let name = provider.label();
+    let key = provider.key();
     let (selected_is_available, share_status) = match &choices {
         CalendarChoices::Available(calendars) => {
             let exists = calendars
@@ -190,7 +253,7 @@ fn CalendarSharing(selected: Option<String>, shared: bool, choices: CalendarChoi
             (
                 exists,
                 if selected.is_some() && !exists {
-                    Some("Your selected calendar is no longer available.")
+                    Some("Your selected calendar is no longer available.".to_owned())
                 } else {
                     None
                 },
@@ -198,11 +261,13 @@ fn CalendarSharing(selected: Option<String>, shared: bool, choices: CalendarChoi
         }
         CalendarChoices::Reconnect => (
             false,
-            Some("Reconnect Google Calendar to access your calendars."),
+            Some(format!("Reconnect {name} to access your calendars.")),
         ),
         CalendarChoices::Unavailable => (
             false,
-            Some("Could not load your calendars from Google. Reload to try again."),
+            Some(format!(
+                "Could not load your calendars from {name}. Reload to try again."
+            )),
         ),
     };
     rsx! {
@@ -211,11 +276,11 @@ fn CalendarSharing(selected: Option<String>, shared: bool, choices: CalendarChoi
         }
         if let CalendarChoices::Available(calendars) = choices {
             if calendars.is_empty() {
-                p { "There are no readable calendars on this Google account." }
+                p { "There are no readable calendars on this account." }
             } else {
-                form { action: "/calendar/google/select", method: "post",
-                    label { r#for: "selected-calendar", "Google calendar" }
-                    select { id: "selected-calendar", name: "calendar_id", required: true,
+                form { action: "/calendar/{key}/select", method: "post",
+                    label { r#for: "selected-calendar-{key}", "Calendar" }
+                    select { id: "selected-calendar-{key}", name: "calendar_id", required: true,
                         option { value: "", disabled: true, selected: !selected_is_available, "Choose a calendar" }
                         for calendar in calendars {
                             option { key: "{calendar.id}", value: "{calendar.id}", selected: Some(&calendar.id) == selected.as_ref(), "{calendar.name}" }
@@ -226,7 +291,7 @@ fn CalendarSharing(selected: Option<String>, shared: bool, choices: CalendarChoi
             }
         }
         if let Some(id) = selected.filter(|_| shared || selected_is_available) {
-            form { action: "/calendar/google/share", method: "post",
+            form { action: "/calendar/{key}/share", method: "post",
                 input { r#type: "hidden", name: "calendar_id", value: "{id}" }
                 if shared {
                     p { "This calendar is shared with your household." }
@@ -241,10 +306,13 @@ fn CalendarSharing(selected: Option<String>, shared: bool, choices: CalendarChoi
 }
 
 #[component]
-fn ConnectButton(label: &'static str) -> Element {
+fn ConnectButton(provider: Provider, reconnect: bool) -> Element {
+    let key = provider.key();
+    let action = if reconnect { "Reconnect" } else { "Connect" };
+    let name = provider.label();
     rsx! {
-        form { action: "/calendar/google/connect", method: "post",
-            button { class: "primary-button", r#type: "submit", "{label}" }
+        form { action: "/calendar/{key}/connect", method: "post",
+            button { class: "primary-button", r#type: "submit", "{action} {name}" }
         }
     }
 }

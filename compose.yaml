@@ -12,6 +12,9 @@ services:
       LAVEMILL_GOOGLE_CLIENT_ID: ${LAVEMILL_GOOGLE_CLIENT_ID:-}
       LAVEMILL_GOOGLE_CLIENT_SECRET: ${LAVEMILL_GOOGLE_CLIENT_SECRET:-}
       LAVEMILL_GOOGLE_TOKEN_KEY: ${LAVEMILL_GOOGLE_TOKEN_KEY:-}
+      LAVEMILL_OUTLOOK_CLIENT_ID: ${LAVEMILL_OUTLOOK_CLIENT_ID:-}
+      LAVEMILL_OUTLOOK_CLIENT_SECRET: ${LAVEMILL_OUTLOOK_CLIENT_SECRET:-}
+      LAVEMILL_OUTLOOK_TOKEN_KEY: ${LAVEMILL_OUTLOOK_TOKEN_KEY:-}
     healthcheck:
       # The HTML loading response stays open until the Dioxus build finishes.
       test: ["CMD", "curl", "--fail", "--silent", "--max-time", "2", "--output", "/dev/null", "http://127.0.0.1:8080/healthz"]

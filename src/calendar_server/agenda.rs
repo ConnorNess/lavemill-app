@@ -1,5 +1,5 @@
 use super::{
-    connection, database_error, run_blocking, Connection, GoogleCalendar, GoogleError, Url,
+    connection, database_error, run_blocking, CalendarClient, Connection, ProviderError, Url,
 };
 use crate::{
     calendar::{Agenda, AgendaDay, AgendaEntry},
@@ -57,7 +57,7 @@ struct DatedEntry {
     entry: AgendaEntry,
 }
 
-impl GoogleCalendar {
+impl CalendarClient {
     pub async fn weekly_agenda(&self) -> Result<Agenda, &'static str> {
         let zone = household_time::time_zone()?;
         let week = Week::new(zone, Utc::now().with_timezone(&zone).date_naive());
@@ -79,7 +79,7 @@ impl GoogleCalendar {
                     google.weekly_events(&source, &start, &end),
                 )
                 .await
-                .unwrap_or(Err(GoogleError::Unavailable));
+                .unwrap_or(Err(ProviderError::Unavailable));
                 (source, result)
             });
         }
@@ -117,8 +117,10 @@ impl GoogleCalendar {
         source: &SharedCalendar,
         start: &str,
         end: &str,
-    ) -> Result<Vec<GoogleEvent>, GoogleError> {
-        let access_token = self.access_token(source.user, &source.token).await?;
+    ) -> Result<Vec<GoogleEvent>, ProviderError> {
+        let access_token = self
+            .access_token(source.user, &source.connection_id, &source.token)
+            .await?;
         let mut url = Url::parse("https://www.googleapis.com/calendar/v3/calendars/")
             .expect("Google Calendar API URL is valid");
         url.path_segments_mut()
@@ -151,10 +153,10 @@ impl GoogleCalendar {
                 .send()
                 .await
                 .and_then(reqwest::Response::error_for_status)
-                .map_err(|_| GoogleError::Unavailable)?
+                .map_err(|_| ProviderError::Unavailable)?
                 .json()
                 .await
-                .map_err(|_| GoogleError::Unavailable)?;
+                .map_err(|_| ProviderError::Unavailable)?;
             events.extend(page.items);
             page_token = page.next_page_token;
             if page_token.is_none() {

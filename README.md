@@ -112,3 +112,20 @@ Open **Calendar** in Lavemill to connect Google and save a calendar selection.
 Select **Share with household** to show its current week on Home. Events marked
 private appear as Busy. Use **Stop sharing** to remove the calendar from Home
 while keeping it connected.
+
+## Outlook Calendar
+
+Register a Microsoft Entra app for personal Microsoft accounts with a **Web**
+redirect URI. For local testing on a separate Compose project, set
+`LAVEMILL_PORT=8081` and `LAVEMILL_ORIGIN=http://localhost:8081`, and register
+`http://localhost:8081/calendar/outlook/callback`. Open Lavemill using that
+origin. If testing both providers, also register
+`http://localhost:8081/calendar/google/callback` with Google. For production,
+register the same Outlook callback path on the configured HTTPS origin.
+
+Grant the delegated Microsoft Graph permission `Calendars.ReadBasic`. Lavemill
+requests `offline_access` when a member connects. Set
+`LAVEMILL_OUTLOOK_CLIENT_ID`, `LAVEMILL_OUTLOOK_CLIENT_SECRET` (the secret value),
+and `LAVEMILL_OUTLOOK_TOKEN_KEY` in the server environment or ignored Compose
+`.env` file. Generate a separate token key using the command above and retain
+it across deployments and backups.

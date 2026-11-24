@@ -78,7 +78,7 @@ pub mod server {
         dummy_hash: Arc<str>,
         attempts: Arc<Mutex<Attempts>>,
         verification_slots: Arc<Semaphore>,
-        google_calendar: Option<crate::google_calendar::GoogleCalendar>,
+        calendars: crate::calendar_server::CalendarClients,
     }
 
     #[derive(Clone, Copy)]
@@ -132,7 +132,7 @@ pub mod server {
             let dummy_hash = accounts::hash_password("unused dummy credential")?;
             let origin = url.origin().ascii_serialization();
             Ok(Self {
-                google_calendar: crate::google_calendar::GoogleCalendar::configured(&origin)?,
+                calendars: crate::calendar_server::CalendarClients::configured(&origin)?,
                 origin,
                 dev_port: url.port_or_known_default().filter(|_| !secure),
                 secure,
@@ -216,24 +216,24 @@ pub mod server {
             .route("/auth/login", post(sign_in))
             .route("/auth/logout", post(sign_out))
             .route(
-                "/calendar/google/connect",
-                post(crate::google_calendar::connect),
+                "/calendar/{provider}/connect",
+                post(crate::calendar_server::connect),
             )
             .route(
-                "/calendar/google/callback",
-                get(crate::google_calendar::callback),
+                "/calendar/{provider}/callback",
+                get(crate::calendar_server::callback),
             )
             .route(
-                "/calendar/google/disconnect",
-                post(crate::google_calendar::disconnect),
+                "/calendar/{provider}/disconnect",
+                post(crate::calendar_server::disconnect),
             )
             .route(
-                "/calendar/google/select",
-                post(crate::google_calendar::select),
+                "/calendar/{provider}/select",
+                post(crate::calendar_server::select),
             )
             .route(
-                "/calendar/google/share",
-                post(crate::google_calendar::share),
+                "/calendar/{provider}/share",
+                post(crate::calendar_server::share),
             )
             .layer(DefaultBodyLimit::max(8 * 1024))
             .with_state(state.clone())
@@ -252,7 +252,8 @@ pub mod server {
         let session_api = path == "/api/session";
         let todos_api = path == "/api/todos" || path.starts_with("/api/todos/");
         let shopping_api = path == "/api/shopping" || path.starts_with("/api/shopping/");
-        let calendar_request = path.starts_with("/calendar/google/")
+        let calendar_request = (path.starts_with("/calendar/google/")
+            || path.starts_with("/calendar/outlook/"))
             || path == "/api/calendar"
             || path.starts_with("/api/calendar/");
         let account_request = page
@@ -292,9 +293,7 @@ pub mod server {
                     if let Some(token) = token {
                         request.extensions_mut().insert(SessionHash(token));
                     }
-                    if let Some(google) = &state.google_calendar {
-                        request.extensions_mut().insert(google.clone());
-                    }
+                    request.extensions_mut().insert(state.calendars.clone());
                 }
                 None if page => return private(Redirect::to("/login").into_response()),
                 None if users_api || todos_api || shopping_api || calendar_request => {
