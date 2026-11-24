@@ -13,6 +13,9 @@ mod todo_storage;
 mod todos;
 use todos::{TasksCard, Todos};
 mod shopping;
+mod shopping_data;
+#[cfg(feature = "server")]
+mod shopping_storage;
 use shopping::{Shopping, ShoppingCard};
 
 #[derive(Debug, Clone, Routable, PartialEq)]

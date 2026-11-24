@@ -225,9 +225,11 @@ pub mod server {
         let users_api = path.starts_with("/api/users");
         let session_api = path == "/api/session";
         let todos_api = path == "/api/todos" || path.starts_with("/api/todos/");
+        let shopping_api = path == "/api/shopping" || path.starts_with("/api/shopping/");
         let account_request = page
             || users_api
             || todos_api
+            || shopping_api
             || session_api
             || path == "/login"
             || path.starts_with("/auth/");
@@ -242,7 +244,7 @@ pub mod server {
             ).into_response());
         }
 
-        if page || users_api || todos_api || session_api {
+        if page || users_api || todos_api || shopping_api || session_api {
             let viewer = match state.token(request.headers()) {
                 Some(token) => match run_blocking(move || lookup_session(&token)).await {
                     Ok(viewer) => viewer,
@@ -258,7 +260,7 @@ pub mod server {
                     request.extensions_mut().insert(viewer);
                 }
                 None if page => return private(Redirect::to("/login").into_response()),
-                None if users_api || todos_api => {
+                None if users_api || todos_api || shopping_api => {
                     return private(StatusCode::UNAUTHORIZED.into_response())
                 }
                 None => {}
