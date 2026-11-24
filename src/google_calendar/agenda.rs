@@ -16,6 +16,7 @@ struct SharedCalendar {
     user: i64,
     id: String,
     token: Vec<u8>,
+    connection_id: Vec<u8>,
 }
 
 #[derive(Clone, Copy)]
@@ -166,8 +167,8 @@ impl GoogleCalendar {
 fn list_shared(db: &Connection) -> Result<Vec<SharedCalendar>, &'static str> {
     let mut statement = db
         .prepare(
-            "SELECT user_id, calendar_id, refresh_token FROM google_calendar_connections
-             WHERE shared = 1",
+            "SELECT user_id, calendar_id, refresh_token, id FROM calendar_connections
+             WHERE shared = 1 AND provider = 'google'",
         )
         .map_err(database_error)?;
     let rows = statement
@@ -176,6 +177,7 @@ fn list_shared(db: &Connection) -> Result<Vec<SharedCalendar>, &'static str> {
                 user: row.get(0)?,
                 id: row.get(1)?,
                 token: row.get(2)?,
+                connection_id: row.get(3)?,
             })
         })
         .map_err(database_error)?;
@@ -381,8 +383,8 @@ mod tests {
             )
             .unwrap();
             db.execute(
-                "INSERT INTO google_calendar_connections (user_id, refresh_token, calendar_id, shared)
-                 VALUES (?1, X'0102', ?2, ?3)",
+                "INSERT INTO calendar_connections (user_id, refresh_token, calendar_id, shared, provider)
+                 VALUES (?1, X'0102', ?2, ?3, 'google')",
                 params![user, calendar, shared],
             )
             .unwrap();
@@ -390,7 +392,7 @@ mod tests {
         let shared = list_shared(&db).unwrap();
         assert_eq!(shared.len(), 1);
         assert_eq!(shared[0].id, "family");
-        assert!(super::super::set_shared(&db, 1, "family", false).unwrap());
+        assert!(super::super::set_shared(&db, "google", 1, "family", false).unwrap());
         assert!(list_shared(&db).unwrap().is_empty());
     }
 }

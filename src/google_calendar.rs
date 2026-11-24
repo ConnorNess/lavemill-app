@@ -26,6 +26,7 @@ const CALLBACK_PATH: &str = "/calendar/google/callback";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const CALENDAR_LIST_URL: &str = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
 const SCOPES: &str = "https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly";
+const GOOGLE: &str = "google";
 const ATTEMPT_SECONDS: i64 = 10 * 60;
 const NONCE_BYTES: usize = 12;
 const CONNECTION_ERROR: &str = "Could not protect your Google Calendar connection.";
@@ -43,6 +44,7 @@ struct Config {
 
 struct LinkedCalendar {
     token: Vec<u8>,
+    id: Vec<u8>,
     calendar_id: Option<String>,
     shared: bool,
 }
@@ -84,7 +86,7 @@ impl GoogleCalendar {
     }
 
     pub async fn status(&self, user: i64) -> Result<ConnectionStatus, &'static str> {
-        let Some(link) = linked_calendar(user).await? else {
+        let Some(link) = linked_calendar(GOOGLE, user).await? else {
             return Ok(ConnectionStatus::Disconnected);
         };
         let choices = match self.calendar_choices(user, &link.token).await {
@@ -289,15 +291,16 @@ pub async fn connect(
     };
     let url = google.authorization_url(&state, &verifier);
     let saved = run_blocking(move || {
-        connection()?.execute(
-            "INSERT INTO google_calendar_attempts (user_id, session_hash, state_hash, verifier, expires_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(user_id) DO UPDATE SET session_hash = excluded.session_hash,
-               state_hash = excluded.state_hash, verifier = excluded.verifier,
-               expires_at = excluded.expires_at, claimed = 0",
-            params![viewer.id, &session.0[..], &hash(&state)[..], verifier, now() + ATTEMPT_SECONDS],
-        ).map_err(database_error)
-    }).await;
+        start_attempt(
+            &connection()?,
+            GOOGLE,
+            viewer.id,
+            session,
+            &state,
+            &verifier,
+        )
+    })
+    .await;
     match saved {
         Ok(_) => Redirect::to(url.as_str()),
         Err(_) => calendar("failed"),
@@ -323,7 +326,7 @@ pub async fn callback(
     let user = viewer.id;
     let state = hash(&state);
     let Ok(Some(verifier)) =
-        run_blocking(move || claim_attempt(&connection()?, user, session, state)).await
+        run_blocking(move || claim_attempt(&connection()?, GOOGLE, user, session, state)).await
     else {
         return calendar("failed");
     };
@@ -340,14 +343,16 @@ pub async fn callback(
     else {
         return calendar("failed");
     };
-    match run_blocking(move || save_connection(&mut connection()?, user, state, &token)).await {
+    match run_blocking(move || save_connection(&mut connection()?, GOOGLE, user, state, &token))
+        .await
+    {
         Ok(true) => calendar("connected"),
         _ => calendar("failed"),
     }
 }
 
 pub async fn disconnect(Extension(viewer): Extension<Viewer>) -> Redirect {
-    match run_blocking(move || remove_connection(&mut connection()?, viewer.id)).await {
+    match run_blocking(move || remove_connection(&mut connection()?, GOOGLE, viewer.id)).await {
         Ok(()) => calendar("disconnected"),
         Err(_) => calendar("failed"),
     }
@@ -363,7 +368,8 @@ pub async fn select(
     google: Option<Extension<GoogleCalendar>>,
     Form(selection): Form<CalendarSelection>,
 ) -> Redirect {
-    let (Some(Extension(google)), Ok(Some(link))) = (google, linked_calendar(viewer.id).await)
+    let (Some(Extension(google)), Ok(Some(link))) =
+        (google, linked_calendar(GOOGLE, viewer.id).await)
     else {
         return calendar("failed");
     };
@@ -375,7 +381,7 @@ pub async fn select(
     }
     let user = viewer.id;
     let changed =
-        run_blocking(move || save_selection(&connection()?, user, &link.token, &id)).await;
+        run_blocking(move || save_selection(&connection()?, GOOGLE, user, &link.id, &id)).await;
     match changed {
         Ok(true) => calendar("selected"),
         _ => calendar("selection_failed"),
@@ -398,8 +404,10 @@ pub async fn share(
     }
     let user = viewer.id;
     let shared = sharing.shared;
-    let saved =
-        run_blocking(move || set_shared(&connection()?, user, &sharing.calendar_id, shared)).await;
+    let saved = run_blocking(move || {
+        set_shared(&connection()?, GOOGLE, user, &sharing.calendar_id, shared)
+    })
+    .await;
     match saved {
         Ok(true) if shared => calendar("shared"),
         Ok(true) => calendar("unshared"),
@@ -407,50 +415,79 @@ pub async fn share(
     }
 }
 
-async fn linked_calendar(user: i64) -> Result<Option<LinkedCalendar>, &'static str> {
+async fn linked_calendar(
+    provider: &'static str,
+    user: i64,
+) -> Result<Option<LinkedCalendar>, &'static str> {
     run_blocking(move || {
         connection()?.query_row(
-            "SELECT refresh_token, calendar_id, shared FROM google_calendar_connections WHERE user_id = ?1",
-            [user],
-            |row| Ok(LinkedCalendar { token: row.get(0)?, calendar_id: row.get(1)?, shared: row.get(2)? }),
+            "SELECT refresh_token, calendar_id, shared, id FROM calendar_connections WHERE user_id = ?1 AND provider = ?2",
+            params![user, provider],
+            |row| Ok(LinkedCalendar { token: row.get(0)?, calendar_id: row.get(1)?, shared: row.get(2)?, id: row.get(3)? }),
         ).optional().map_err(database_error)
     }).await
 }
 
 fn save_selection(
     db: &Connection,
+    provider: &str,
     user: i64,
-    token: &[u8],
+    connection_id: &[u8],
     id: &str,
 ) -> Result<bool, &'static str> {
     db.execute(
-        "UPDATE google_calendar_connections
+        "UPDATE calendar_connections
          SET calendar_id = ?3, shared = CASE WHEN calendar_id = ?3 THEN shared ELSE 0 END
-         WHERE user_id = ?1 AND refresh_token = ?2",
-        params![user, token, id],
+         WHERE user_id = ?1 AND id = ?2 AND provider = ?4",
+        params![user, connection_id, id, provider],
     )
     .map(|rows| rows == 1)
     .map_err(database_error)
 }
 
-fn set_shared(db: &Connection, user: i64, id: &str, shared: bool) -> Result<bool, &'static str> {
+fn set_shared(
+    db: &Connection,
+    provider: &str,
+    user: i64,
+    id: &str,
+    shared: bool,
+) -> Result<bool, &'static str> {
     db.execute(
-        "UPDATE google_calendar_connections SET shared = ?3 WHERE user_id = ?1 AND calendar_id = ?2",
-        params![user, id, shared],
+        "UPDATE calendar_connections SET shared = ?3 WHERE user_id = ?1 AND calendar_id = ?2 AND provider = ?4",
+        params![user, id, shared, provider],
     ).map(|rows| rows == 1).map_err(database_error)
+}
+
+fn start_attempt(
+    db: &Connection,
+    provider: &str,
+    user: i64,
+    session: SessionHash,
+    state: &str,
+    verifier: &str,
+) -> Result<usize, &'static str> {
+    db.execute(
+        "INSERT INTO calendar_attempts (user_id, session_hash, state_hash, verifier, expires_at, provider)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(user_id, provider) DO UPDATE SET session_hash = excluded.session_hash,
+           state_hash = excluded.state_hash, verifier = excluded.verifier,
+           expires_at = excluded.expires_at, claimed = 0",
+        params![user, &session.0[..], &hash(state)[..], verifier, now() + ATTEMPT_SECONDS, provider],
+    ).map_err(database_error)
 }
 
 fn claim_attempt(
     db: &Connection,
+    provider: &str,
     user: i64,
     session: SessionHash,
     state: [u8; 32],
 ) -> Result<Option<String>, &'static str> {
     db.query_row(
-        "UPDATE google_calendar_attempts SET claimed = 1
+        "UPDATE calendar_attempts SET claimed = 1
          WHERE user_id = ?1 AND session_hash = ?2 AND state_hash = ?3
-           AND expires_at > ?4 AND claimed = 0 RETURNING verifier",
-        params![user, &session.0[..], &state[..], now()],
+           AND expires_at > ?4 AND claimed = 0 AND provider = ?5 RETURNING verifier",
+        params![user, &session.0[..], &state[..], now(), provider],
         |row| row.get(0),
     )
     .optional()
@@ -459,6 +496,7 @@ fn claim_attempt(
 
 fn save_connection(
     db: &mut Connection,
+    provider: &str,
     user: i64,
     state: [u8; 32],
     token: &[u8],
@@ -466,36 +504,36 @@ fn save_connection(
     let tx = db.transaction().map_err(database_error)?;
     let claimed = tx
         .execute(
-            "DELETE FROM google_calendar_attempts
-         WHERE user_id = ?1 AND state_hash = ?2 AND expires_at > ?3 AND claimed = 1
+            "DELETE FROM calendar_attempts
+         WHERE user_id = ?1 AND state_hash = ?2 AND expires_at > ?3 AND claimed = 1 AND provider = ?4
            AND EXISTS (SELECT 1 FROM sessions WHERE token_hash = session_hash AND expires_at > ?3)",
-            params![user, &state[..], now()],
+            params![user, &state[..], now(), provider],
         )
         .map_err(database_error)?;
     if claimed == 0 {
         return Ok(false);
     }
     tx.execute(
-        "INSERT INTO google_calendar_connections (user_id, refresh_token) VALUES (?1, ?2)
-         ON CONFLICT(user_id) DO UPDATE SET refresh_token = excluded.refresh_token,
+        "INSERT INTO calendar_connections (user_id, refresh_token, provider) VALUES (?1, ?2, ?3)
+         ON CONFLICT(user_id, provider) DO UPDATE SET refresh_token = excluded.refresh_token, id = excluded.id,
            calendar_id = NULL, shared = 0",
-        params![user, token],
+        params![user, token, provider],
     )
     .map_err(database_error)?;
     tx.commit().map_err(database_error)?;
     Ok(true)
 }
 
-fn remove_connection(db: &mut Connection, user: i64) -> Result<(), &'static str> {
+fn remove_connection(db: &mut Connection, provider: &str, user: i64) -> Result<(), &'static str> {
     let tx = db.transaction().map_err(database_error)?;
     tx.execute(
-        "DELETE FROM google_calendar_attempts WHERE user_id = ?1",
-        [user],
+        "DELETE FROM calendar_attempts WHERE user_id = ?1 AND provider = ?2",
+        params![user, provider],
     )
     .map_err(database_error)?;
     tx.execute(
-        "DELETE FROM google_calendar_connections WHERE user_id = ?1",
-        [user],
+        "DELETE FROM calendar_connections WHERE user_id = ?1 AND provider = ?2",
+        params![user, provider],
     )
     .map_err(database_error)?;
     tx.commit().map_err(database_error)
@@ -569,69 +607,85 @@ mod tests {
         .unwrap();
         let start = |db: &Connection| {
             db.execute(
-                "INSERT INTO google_calendar_attempts
-                 (user_id, session_hash, state_hash, verifier, expires_at)
-                 VALUES (1, ?1, ?2, 'test verifier', ?3)",
+                "INSERT INTO calendar_attempts
+                 (user_id, session_hash, state_hash, verifier, expires_at, provider)
+                 VALUES (1, ?1, ?2, 'test verifier', ?3, 'google')",
                 params![&session.0[..], &state[..], now() + 60],
             )
             .unwrap();
         };
         start(&db);
+        assert_eq!(
+            claim_attempt(&db, "outlook", 1, session, state).unwrap(),
+            None
+        );
         for (user, session, state) in [
             (2, session, state),
             (1, SessionHash([5; 32]), state),
             (1, session, hash("different state")),
         ] {
-            assert_eq!(claim_attempt(&db, user, session, state).unwrap(), None);
+            assert_eq!(
+                claim_attempt(&db, GOOGLE, user, session, state).unwrap(),
+                None
+            );
         }
         assert_eq!(
-            claim_attempt(&db, 1, session, state).unwrap().as_deref(),
+            claim_attempt(&db, GOOGLE, 1, session, state)
+                .unwrap()
+                .as_deref(),
             Some("test verifier")
         );
-        assert_eq!(claim_attempt(&db, 1, session, state).unwrap(), None);
-        assert!(save_connection(&mut db, 1, state, b"sealed token").unwrap());
+        assert_eq!(claim_attempt(&db, GOOGLE, 1, session, state).unwrap(), None);
+        assert!(save_connection(&mut db, GOOGLE, 1, state, b"sealed token").unwrap());
         drop(db);
         let mut db = database::open(&path).unwrap();
         let token: Vec<u8> = db
             .query_row(
-                "SELECT refresh_token FROM google_calendar_connections WHERE user_id = 1",
+                "SELECT refresh_token FROM calendar_connections WHERE user_id = 1",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
         assert_eq!(token, b"sealed token");
-        assert!(!set_shared(&db, 2, "family", true).unwrap());
-        assert!(!set_shared(&db, 1, "family", true).unwrap());
-        assert!(!save_selection(&db, 1, b"old token", "family").unwrap());
-        assert!(save_selection(&db, 1, &token, "family").unwrap());
-        assert!(set_shared(&db, 1, "family", true).unwrap());
-        assert!(save_selection(&db, 1, &token, "family").unwrap());
+        let id: Vec<u8> = db
+            .query_row(
+                "SELECT id FROM calendar_connections WHERE user_id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!set_shared(&db, GOOGLE, 2, "family", true).unwrap());
+        assert!(!set_shared(&db, GOOGLE, 1, "family", true).unwrap());
+        assert!(!save_selection(&db, GOOGLE, 1, b"old token", "family").unwrap());
+        assert!(save_selection(&db, GOOGLE, 1, &id, "family").unwrap());
+        assert!(set_shared(&db, GOOGLE, 1, "family", true).unwrap());
+        assert!(save_selection(&db, GOOGLE, 1, &id, "family").unwrap());
         let shared = || {
             db.query_row(
-                "SELECT shared FROM google_calendar_connections WHERE user_id = 1",
+                "SELECT shared FROM calendar_connections WHERE user_id = 1",
                 [],
                 |row| row.get::<_, bool>(0),
             )
             .unwrap()
         };
         assert!(shared());
-        assert!(save_selection(&db, 1, &token, "personal").unwrap());
+        assert!(save_selection(&db, GOOGLE, 1, &id, "personal").unwrap());
         assert!(!shared());
-        assert!(!set_shared(&db, 1, "family", true).unwrap());
-        assert!(set_shared(&db, 1, "personal", true).unwrap());
-        assert!(set_shared(&db, 1, "personal", false).unwrap());
+        assert!(!set_shared(&db, GOOGLE, 1, "family", true).unwrap());
+        assert!(set_shared(&db, GOOGLE, 1, "personal", true).unwrap());
+        assert!(set_shared(&db, GOOGLE, 1, "personal", false).unwrap());
         assert!(!shared());
 
         start(&db);
-        assert!(claim_attempt(&db, 1, session, state).unwrap().is_some());
-        remove_connection(&mut db, 1).unwrap();
-        assert!(!save_connection(&mut db, 1, state, b"stale token").unwrap());
+        assert!(claim_attempt(&db, GOOGLE, 1, session, state)
+            .unwrap()
+            .is_some());
+        remove_connection(&mut db, GOOGLE, 1).unwrap();
+        assert!(!save_connection(&mut db, GOOGLE, 1, state, b"stale token").unwrap());
         let rows: i64 = db
-            .query_row(
-                "SELECT COUNT(*) FROM google_calendar_connections",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM calendar_connections", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(rows, 0);
     }
