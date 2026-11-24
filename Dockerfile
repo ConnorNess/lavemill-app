@@ -16,8 +16,12 @@ ENV PATH="/opt/dioxus/bin:${PATH}" \
     CARGO_TARGET_DIR=/app/target \
     CARGO_BUILD_JOBS=2
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 RUN mkdir -p /data
 EXPOSE 8080
 
-CMD ["dx", "serve", "--web", "--addr", "0.0.0.0", "--port", "8080", "--open", "false", "--interactive", "false"]
+CMD ["dx", "serve", "--web", "--addr", "0.0.0.0", "--port", "8080", "--open", "false", "--interactive", "false", "--exit-on-error"]
