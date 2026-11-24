@@ -73,6 +73,7 @@ pub mod server {
     #[derive(Clone)]
     struct AuthState {
         origin: String,
+        dev_port: Option<u16>,
         secure: bool,
         dummy_hash: Arc<str>,
         attempts: Arc<Mutex<Attempts>>,
@@ -127,6 +128,7 @@ pub mod server {
             let dummy_hash = accounts::hash_password("unused dummy credential")?;
             Ok(Self {
                 origin: url.origin().ascii_serialization(),
+                dev_port: url.port_or_known_default().filter(|_| !secure),
                 secure,
                 dummy_hash: dummy_hash.into(),
                 attempts: Arc::new(Mutex::new(Attempts {
@@ -135,6 +137,33 @@ pub mod server {
                     by_username: HashMap::new(),
                 })),
                 verification_slots: Arc::new(Semaphore::new(2)),
+            })
+        }
+
+        fn accepts_origin(&self, headers: &HeaderMap) -> bool {
+            let Some(origin) = headers
+                .get(header::ORIGIN)
+                .and_then(|value| value.to_str().ok())
+            else {
+                return false;
+            };
+            if origin == self.origin {
+                return true;
+            }
+            let (Some(port), Some(authority)) = (self.dev_port, origin.strip_prefix("http://"))
+            else {
+                return false;
+            };
+            if !headers
+                .get(header::HOST)
+                .is_some_and(|host| host == authority)
+            {
+                return false;
+            }
+            Url::parse(origin).is_ok_and(|url| {
+                matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+                    && url.port_or_known_default() == Some(port)
+                    && url.origin().ascii_serialization() == origin
             })
         }
 
@@ -200,12 +229,12 @@ pub mod server {
         if account_request
             && request.method() != Method::GET
             && request.method() != Method::HEAD
-            && !request
-                .headers()
-                .get(header::ORIGIN)
-                .is_some_and(|origin| origin == state.origin.as_str())
+            && !state.accepts_origin(request.headers())
         {
-            return private(StatusCode::FORBIDDEN.into_response());
+            return private((
+                StatusCode::FORBIDDEN,
+                format!("This request came from an unexpected address. Open Lavemill at {} and try again.", state.origin),
+            ).into_response());
         }
 
         if page || users_api || session_api {
@@ -389,5 +418,60 @@ pub mod server {
             .map_err(accounts::database_error)?;
         transaction.commit().map_err(accounts::database_error)?;
         Ok(Some(URL_SAFE_NO_PAD.encode(secret)))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn loopback_alias_requires_matching_host_and_port() {
+            let state = AuthState::new("http://127.0.0.1:8080").unwrap();
+            let mut headers = HeaderMap::new();
+            assert!(!state.accepts_origin(&headers));
+            headers.insert(header::HOST, HeaderValue::from_static("localhost:8080"));
+            headers.insert(
+                header::ORIGIN,
+                HeaderValue::from_static("http://localhost:8080"),
+            );
+            assert!(state.accepts_origin(&headers));
+
+            headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:8080"));
+            assert!(!state.accepts_origin(&headers));
+            headers.insert(header::HOST, HeaderValue::from_static("localhost:8081"));
+            headers.insert(
+                header::ORIGIN,
+                HeaderValue::from_static("http://localhost:8081"),
+            );
+            assert!(!state.accepts_origin(&headers));
+            headers.insert(header::HOST, HeaderValue::from_static("example.com:8080"));
+            headers.insert(
+                header::ORIGIN,
+                HeaderValue::from_static("http://example.com:8080"),
+            );
+            assert!(!state.accepts_origin(&headers));
+        }
+
+        #[test]
+        fn https_only_accepts_its_configured_origin() {
+            let state = AuthState::new("https://lavemill.example.com").unwrap();
+            let mut headers = HeaderMap::new();
+            headers.insert(header::HOST, HeaderValue::from_static("localhost:8080"));
+            headers.insert(
+                header::ORIGIN,
+                HeaderValue::from_static("http://localhost:8080"),
+            );
+            assert!(!state.accepts_origin(&headers));
+            headers.insert(
+                header::ORIGIN,
+                HeaderValue::from_static("https://example.com"),
+            );
+            assert!(!state.accepts_origin(&headers));
+            headers.insert(
+                header::ORIGIN,
+                HeaderValue::from_static("https://lavemill.example.com"),
+            );
+            assert!(state.accepts_origin(&headers));
+        }
     }
 }
