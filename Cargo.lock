@@ -2060,11 +2060,16 @@ name = "lavemill-app"
 version = "0.1.0"
 dependencies = [
  "argon2",
+ "base64 0.22.1",
  "dioxus",
  "getrandom 0.3.4",
  "rpassword",
  "rusqlite",
+ "serde",
+ "sha2",
  "tempfile",
+ "tokio",
+ "url",
 ]
 
 [[package]]

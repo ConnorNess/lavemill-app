@@ -14,7 +14,7 @@ docker compose --profile dev-tools up
 ```
 
 Open http://localhost:8082 to browse tables and run SELECT queries. The viewer
-starts once the app compiles, initializes the database, and serves its home page.
+starts once the app compiles, initializes the database, and serves its health endpoint.
 If the initial build fails, the app exits and Compose leaves the viewer stopped.
 The viewer uses a pinned upstream sqlite-web image, opens the database read-only,
 and is available only on this machine.
@@ -81,7 +81,7 @@ docker compose build
 docker compose up
 ```
 
-Open the app at http://localhost:8080 once it finishes compiling and initializes
+Open the app at http://127.0.0.1:8080 once it finishes compiling and initializes
 the database. The first build
 takes a while. Source edits are picked up while the app is running.
 
@@ -104,6 +104,12 @@ Recover the admin account from the same host and database:
 ```sh
 docker compose run --rm --no-deps app cargo run --locked --no-default-features --features server -- admin reset-password
 ```
+
+Sign in at `/login` with the username and password you chose. For local Compose
+development, use the exact browser origin `http://127.0.0.1:8080` (or the port
+set via `LAVEMILL_PORT`). For an HTTPS deployment, set `LAVEMILL_ORIGIN` to the
+public HTTPS origin, for example `https://lavemill.example.com`. Point the tunnel
+at the release server and leave the development viewer stopped.
 
 ## Docker commands
 

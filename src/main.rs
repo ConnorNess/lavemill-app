@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 #[cfg(feature = "server")]
 mod accounts;
+mod auth;
+use auth::Login;
 #[cfg(feature = "server")]
 mod database;
 
@@ -11,6 +13,8 @@ use shopping::{Shopping, ShoppingCard};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 enum Route {
+    #[route("/login?:error")]
+    Login { error: Option<String> },
     #[layout(HouseholdLayout)]
     #[route("/")]
     Home {},
@@ -41,7 +45,17 @@ fn main() {
             }
             return;
         }
+        let origin = std::env::var("LAVEMILL_ORIGIN").unwrap_or_default();
+        let router = auth::server::router(&origin).unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(1);
+        });
+        dioxus::serve(move || {
+            let router = router.clone();
+            async move { Ok(router) }
+        });
     }
+    #[cfg(not(feature = "server"))]
     dioxus::launch(App);
 }
 
@@ -58,6 +72,18 @@ fn HouseholdLayout() -> Element {
     use_context_provider(|| Signal::new(todos::TaskStore::sample()));
     use_context_provider(|| Signal::new(shopping::ShoppingStore::sample()));
     let route = use_route::<Route>();
+    let viewer = use_server_future(auth::current_viewer)?;
+    let viewer = viewer.read();
+    match viewer.as_ref() {
+        Some(Ok(Some(_))) => {}
+        Some(Ok(None)) => {
+            return rsx! { main { class: "dashboard", a { href: "/login", "Sign in to continue" } } }
+        }
+        Some(Err(_)) => {
+            return rsx! { main { class: "dashboard", p { role: "alert", "Could not check your session. Reload to try again." } } }
+        }
+        None => return rsx! { main { class: "dashboard", p { "Checking your session…" } } },
+    }
     rsx! {
         a { class: "skip-link", href: "#main", "Skip to content" }
         header { class: "site-header",
@@ -70,6 +96,9 @@ fn HouseholdLayout() -> Element {
                     Link { to: Route::Home {}, class: if route == (Route::Home {}) { "nav-link active" } else { "nav-link" }, "Home" }
                     Link { to: Route::Todos {}, class: if route == (Route::Todos {}) { "nav-link active" } else { "nav-link" }, "To-dos" }
                     Link { to: Route::Shopping {}, class: if route == (Route::Shopping {}) { "nav-link active" } else { "nav-link" }, "Shopping" }
+                }
+                form { action: "/auth/logout", method: "post",
+                    button { class: "undo-button", r#type: "submit", "Sign out" }
                 }
             }
         }
