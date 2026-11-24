@@ -1,110 +1,91 @@
 use super::{CardHeading, Route, StatusMark};
 use dioxus::prelude::*;
+use serde::{Deserialize, Serialize};
 
-// A fixed day keeps the mock data identical during server rendering and hydration.
-const TODAY: &str = "2026-11-23";
-const MEMBERS: [&str; 4] = ["Connor", "Jade", "Ainsley", "Andrew"];
-
-#[derive(Clone, PartialEq)]
-struct Task {
-    id: u64,
-    title: String,
-    due: String,
-    assignee: String,
-    completed: bool,
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub(crate) struct Task {
+    pub id: i64,
+    pub title: String,
+    pub description: Option<String>,
+    pub due: String,
+    pub reporter: String,
+    pub assignee_id: Option<i64>,
+    pub assignee: Option<String>,
+    pub status: String,
 }
 
-pub(super) struct TaskStore {
-    tasks: Vec<Task>,
-    next_id: u64,
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub(crate) struct Member {
+    pub id: i64,
+    pub name: String,
 }
 
-impl TaskStore {
-    pub(super) fn sample() -> Self {
-        let tasks = [
-            ("Muck out", "2026-11-22", "Connor", false),
-            ("Take the bins out", TODAY, "Jade", false),
-            ("Mop kitchen", TODAY, "Ainsley", false),
-            ("Feed the chickens", TODAY, "Andrew", true),
-            ("Clean the bathroom", "2026-11-24", "Andrew", false),
-            ("Hoover upstairs", "2026-11-25", "", false),
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, (title, due, assignee, completed))| Task {
-            id: index as u64,
-            title: title.into(),
-            due: due.into(),
-            assignee: assignee.into(),
-            completed,
-        })
-        .collect();
-        Self { tasks, next_id: 6 }
-    }
-
-    fn add(&mut self, title: &str, due: &str, assignee: &str) -> Result<(), &'static str> {
-        if title.trim().is_empty() {
-            return Err("Enter a task title.");
-        }
-        if !valid_date(due) {
-            return Err("Choose a valid due date.");
-        }
-        if !assignee.is_empty() && !MEMBERS.contains(&assignee) {
-            return Err("Choose a household member or leave the task unassigned.");
-        }
-        self.tasks.push(Task {
-            id: self.next_id,
-            title: title.trim().into(),
-            due: due.into(),
-            assignee: assignee.into(),
-            completed: false,
-        });
-        self.next_id += 1;
-        Ok(())
-    }
-
-    fn set_completed(&mut self, id: u64, completed: bool) {
-        if let Some(task) = self.tasks.iter_mut().find(|task| task.id == id) {
-            task.completed = completed;
-        }
-    }
-
-    fn assign(&mut self, id: u64, assignee: String) {
-        if assignee.is_empty() || MEMBERS.contains(&assignee.as_str()) {
-            if let Some(task) = self
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == id && !task.completed)
-            {
-                task.assignee = assignee;
-            }
-        }
-    }
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub(crate) struct Tasks {
+    pub today: String,
+    pub tasks: Vec<Task>,
+    pub members: Vec<Member>,
 }
 
-fn valid_date(date: &str) -> bool {
-    let bytes = date.as_bytes();
-    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
-        return false;
+#[derive(Deserialize, Serialize)]
+pub(crate) enum Change {
+    Create {
+        title: String,
+        description: String,
+        due: String,
+        assignee: Option<i64>,
+    },
+    Describe {
+        id: i64,
+        description: String,
+    },
+    Assign {
+        id: i64,
+        assignee: Option<i64>,
+    },
+    Complete {
+        id: i64,
+    },
+    Reopen {
+        id: i64,
+    },
+}
+
+#[get("/api/todos")]
+async fn list_tasks() -> Result<Tasks, ServerFnError> {
+    require_member()?;
+    crate::auth::server::run_blocking(|| {
+        let today = crate::todo_storage::household_date()?;
+        crate::todo_storage::list(&crate::auth::server::connection()?, today)
+    })
+    .await
+    .map_err(ServerFnError::new)
+}
+
+#[post("/api/todos/change")]
+async fn change_task(change: Change) -> Result<Option<String>, ServerFnError> {
+    let actor = require_member()?;
+    let result = crate::auth::server::run_blocking(move || {
+        crate::todo_storage::apply(&crate::auth::server::connection()?, actor, change)
+    })
+    .await;
+    Ok(result.err().map(str::to_owned))
+}
+
+#[cfg(feature = "server")]
+fn require_member() -> Result<i64, ServerFnError> {
+    dioxus::fullstack::FullstackContext::current()
+        .and_then(|context| context.extension::<crate::auth::Viewer>())
+        .map(|viewer| viewer.id)
+        .ok_or_else(|| ServerFnError::new("Sign in to continue."))
+}
+
+async fn save(change: Change) -> Result<(), String> {
+    match change_task(change).await {
+        Ok(None) => Ok(()),
+        Ok(Some(message)) => Err(message),
+        Err(_) => Err("Could not save the task. Try again.".into()),
     }
-    if !bytes
-        .iter()
-        .enumerate()
-        .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
-    {
-        return false;
-    }
-    let year = date[..4].parse::<u32>().unwrap_or(0);
-    let month = date[5..7].parse::<u32>().unwrap_or(0);
-    let day = date[8..].parse::<u32>().unwrap_or(0);
-    let days = match month {
-        4 | 6 | 9 | 11 => 30,
-        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
-        2 => 28,
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        _ => 0,
-    };
-    year > 0 && day > 0 && day <= days
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -125,52 +106,52 @@ impl Group {
         }
     }
 
-    fn contains(self, task: &Task) -> bool {
+    fn contains(self, task: &Task, today: &str) -> bool {
         match self {
-            Self::Completed => task.completed,
-            Self::Overdue => !task.completed && task.due.as_str() < TODAY,
-            Self::Today => !task.completed && task.due == TODAY,
-            Self::Upcoming => !task.completed && task.due.as_str() > TODAY,
+            Self::Completed => task.status == "completed",
+            Self::Overdue => task.status == "open" && task.due.as_str() < today,
+            Self::Today => task.status == "open" && task.due == today,
+            Self::Upcoming => task.status == "open" && task.due.as_str() > today,
         }
     }
 }
 
 #[component]
 pub(super) fn TasksCard() -> Element {
-    let store = use_context::<Signal<TaskStore>>();
-    let mut tasks: Vec<Task> = store
-        .read()
-        .tasks
-        .iter()
-        .filter(|task| task.due.as_str() <= TODAY)
-        .cloned()
-        .collect();
-    tasks.sort_by(|a, b| {
-        a.completed
-            .cmp(&b.completed)
-            .then(a.due.cmp(&b.due))
-            .then(a.id.cmp(&b.id))
-    });
-    let open = tasks.iter().filter(|task| !task.completed).count();
+    let data = use_server_future(list_tasks)?;
+    let result = data.read();
+    let mut tasks = Vec::new();
+    if let Some(Ok(data)) = result.as_ref() {
+        tasks.extend(data.tasks.iter().filter(|task| task.due <= data.today));
+        tasks.sort_by_key(|task| task.status == "completed");
+    }
+    let open = tasks.iter().filter(|task| task.status == "open").count();
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "tasks-title",
             CardHeading { icon: "tasks", title: "Today’s To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
-                ul { class: "item-list task-list",
-                    for task in tasks.iter().take(4) {
-                        li { key: "{task.id}", class: if task.completed { "list-row is-done" } else { "list-row" },
-                            StatusMark { done: task.completed }
-                            div { class: "row-copy",
-                                span { class: "row-title", "{task.title}" }
-                                span { class: if !task.completed && task.due.as_str() < TODAY { "row-note overdue" } else { "row-note" },
-                                    if task.completed { "Completed" }
-                                    else if task.due.as_str() < TODAY { "Overdue · {task.due}" }
-                                    else { "Today" }
+                match result.as_ref() {
+                    Some(Ok(data)) => rsx! {
+                        if tasks.is_empty() { p { class: "empty-tasks", "No tasks due today." } }
+                        ul { class: "item-list task-list",
+                            for task in tasks.into_iter().take(4) {
+                                li { key: "{task.id}", class: if task.status == "completed" { "list-row is-done" } else { "list-row" },
+                                    StatusMark { done: task.status == "completed" }
+                                    div { class: "row-copy",
+                                        span { class: "row-title", "{task.title}" }
+                                        span { class: "row-note",
+                                            if task.status == "completed" { "Completed" }
+                                            else if task.due < data.today { "Overdue · {task.due}" }
+                                            else { "Today" }
+                                        }
+                                    }
+                                    span { class: "assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
                                 }
                             }
-                            span { class: "assignee", if task.assignee.is_empty() { "Unassigned" } else { "{task.assignee}" } }
                         }
-                    }
+                    },
+                    Some(Err(_)) => rsx! { p { role: "alert", "Could not load tasks. Reload to try again." } },
+                    None => rsx! { p { "Loading tasks…" } },
                 }
             }
             Link { class: "card-page-link", to: Route::Todos {}, "View all to-dos" }
@@ -180,36 +161,38 @@ pub(super) fn TasksCard() -> Element {
 
 #[component]
 pub(super) fn Todos() -> Element {
+    let data = use_server_future(list_tasks)?;
+    use_context_provider(|| data);
+    let result = data.read();
     rsx! {
         document::Title { "Lavemill · To-dos" }
         main { id: "main", class: "dashboard todos-page", tabindex: "-1",
-            div { class: "todos-heading",
-                h1 { "To-dos" }
-                p { class: "mock-note", "Mock data · Today: 23 November 2026 · Resets on refresh" }
-            }
-            div { class: "todos-layout",
-                div { class: "task-groups",
-                    for group in [Group::Overdue, Group::Today, Group::Upcoming, Group::Completed] {
-                        TaskGroup { key: "{group.title()}", group }
+            div { class: "todos-heading", h1 { "To-dos" } }
+            match result.as_ref() {
+                Some(Ok(data)) => rsx! {
+                    div { class: "todos-layout",
+                        div { class: "task-groups",
+                            for group in [Group::Overdue, Group::Today, Group::Upcoming, Group::Completed] {
+                                TaskGroup {
+                                    key: "{group.title()}",
+                                    group,
+                                    tasks: data.tasks.iter().filter(|task| group.contains(task, &data.today)).cloned().collect::<Vec<_>>(),
+                                    members: data.members.clone(),
+                                }
+                            }
+                        }
+                        AddTaskForm { today: data.today.clone(), members: data.members.clone() }
                     }
-                }
-                AddTaskForm {}
+                },
+                Some(Err(_)) => rsx! { p { role: "alert", "Could not load tasks. Reload to try again." } },
+                None => rsx! { p { "Loading tasks…" } },
             }
         }
     }
 }
 
 #[component]
-fn TaskGroup(group: Group) -> Element {
-    let store = use_context::<Signal<TaskStore>>();
-    let mut tasks: Vec<Task> = store
-        .read()
-        .tasks
-        .iter()
-        .filter(|task| group.contains(task))
-        .cloned()
-        .collect();
-    tasks.sort_by(|a, b| a.due.cmp(&b.due).then(a.id.cmp(&b.id)));
+fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
     rsx! {
         section { class: "task-group", aria_label: group.title(),
             div { class: "task-group-heading",
@@ -220,7 +203,7 @@ fn TaskGroup(group: Group) -> Element {
                 p { class: "empty-tasks", "No {group.title().to_lowercase()} tasks." }
             } else {
                 ul { class: "item-list",
-                    for task in tasks { EditableTaskRow { key: "{task.id}", task } }
+                    for task in tasks { EditableTaskRow { key: "{task.id}", task, members: members.clone() } }
                 }
             }
         }
@@ -228,32 +211,82 @@ fn TaskGroup(group: Group) -> Element {
 }
 
 #[component]
-fn EditableTaskRow(task: Task) -> Element {
-    let mut store = use_context::<Signal<TaskStore>>();
+fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
+    let mut data = use_context::<Resource<Result<Tasks, ServerFnError>>>();
+    let mut error = use_signal(String::new);
+    let mut pending = use_signal(|| false);
+    let mut draft = use_signal(|| None::<String>);
     let id = task.id;
+    let completed = task.status == "completed";
+    let submit = Callback::new(move |change: Change| {
+        if pending() {
+            return;
+        }
+        pending.set(true);
+        spawn(async move {
+            error.set(String::new());
+            let editing = matches!(&change, Change::Describe { .. });
+            match save(change).await {
+                Ok(()) => {
+                    if editing {
+                        draft.set(None);
+                    }
+                    data.restart();
+                }
+                Err(message) => error.set(message),
+            }
+            pending.set(false);
+        });
+    });
+    let assignee = task
+        .assignee_id
+        .map(|id| id.to_string())
+        .unwrap_or_default();
     rsx! {
-        li { class: if task.completed { "editable-task is-done" } else { "editable-task" },
+        li { class: if completed { "editable-task is-done" } else { "editable-task" },
             label { class: "task-check-target",
-                input { r#type: "checkbox", checked: task.completed,
-                    aria_label: if task.completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
-                    onchange: move |event| store.write().set_completed(id, event.checked())
+                input { r#type: "checkbox", checked: completed, disabled: pending(),
+                    aria_label: if completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
+                    onchange: move |event| {
+                        submit.call(if event.checked() { Change::Complete { id } } else { Change::Reopen { id } });
+                    }
                 }
             }
             div { class: "row-copy",
                 span { class: "row-title", "{task.title}" }
                 time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
+                span { class: "row-note", "Reported by {task.reporter}" }
+                if let Some(description) = task.description.as_ref() { p { "{description}" } }
+                if let Some(description) = draft() {
+                    form { onsubmit: move |event| {
+                        event.prevent_default();
+                        if let Some(description) = draft() {
+                            submit.call(Change::Describe { id, description });
+                        }
+                    },
+                        label {
+                            "Description"
+                            textarea { value: "{description}", disabled: pending(), oninput: move |event| draft.set(Some(event.value())) }
+                        }
+                        button { r#type: "submit", disabled: pending(), "Save description" }
+                    }
+                } else if !completed {
+                    button { r#type: "button", class: "undo-button", disabled: pending(),
+                        onclick: move |_| draft.set(Some(task.description.clone().unwrap_or_default())),
+                        "Edit description"
+                    }
+                }
+                if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
             }
-            if task.completed {
-                span { class: "completed-assignee", if task.assignee.is_empty() { "Unassigned" } else { "{task.assignee}" } }
-                button { class: "undo-button", r#type: "button", aria_label: "Undo completion of {task.title}",
-                    onclick: move |_| store.write().set_completed(id, false), "Undo" }
+            if completed {
+                span { class: "completed-assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
+                button { class: "undo-button", r#type: "button", disabled: pending(), aria_label: "Undo completion of {task.title}",
+                    onclick: move |_| submit.call(Change::Reopen { id }), "Undo" }
             } else {
                 label { class: "task-assignee-field",
                     span { class: "sr-only", "Assign {task.title} to" }
-                    select { value: "{task.assignee}", onchange: move |event| store.write().assign(id, event.value()),
-                        option { value: "", "Unassigned" }
-                        for member in MEMBERS { option { value: member, "{member}" } }
-                    }
+                    MemberSelect { value: assignee, members, disabled: pending(),
+                        on_change: move |assignee| submit.call(Change::Assign { id, assignee }) }
                 }
             }
         }
@@ -261,81 +294,71 @@ fn EditableTaskRow(task: Task) -> Element {
 }
 
 #[component]
-fn AddTaskForm() -> Element {
-    let mut store = use_context::<Signal<TaskStore>>();
-    let mut title = use_signal(String::new);
-    let mut due = use_signal(|| TODAY.to_string());
-    let mut assignee = use_signal(String::new);
-    let mut error = use_signal(String::new);
-    let mut feedback = use_signal(String::new);
+fn MemberSelect(
+    value: String,
+    members: Vec<Member>,
+    disabled: bool,
+    on_change: EventHandler<Option<i64>>,
+) -> Element {
     rsx! {
-        section { class: "add-task-panel", aria_labelledby: "add-task-heading",
-            h2 { id: "add-task-heading", "Add a task" }
-            form { onsubmit: move |_| {
-                let result = store.write().add(&title(), &due(), &assignee());
-                match result {
-                    Ok(()) => {
-                        feedback.set(format!("Added: {}", title().trim()));
-                        error.set(String::new());
-                        title.set(String::new());
-                    }
-                    Err(message) => { error.set(message.into()); feedback.set(String::new()); }
-                }
-            },
-                label { r#for: "new-task-title", "Task" }
-                input { id: "new-task-title", name: "title", required: true, value: "{title}",
-                    oninput: move |event| { title.set(event.value()); feedback.set(String::new()); error.set(String::new()); }
-                }
-                label { r#for: "new-task-date", "Due date" }
-                input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", oninput: move |event| due.set(event.value()) }
-                label { r#for: "new-task-assignee", "Assigned to" }
-                select { id: "new-task-assignee", name: "assignee", value: "{assignee}", onchange: move |event| assignee.set(event.value()),
-                    option { value: "", "Unassigned" }
-                    for member in MEMBERS { option { value: member, "{member}" } }
-                }
-                if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
-                button { class: "primary-button", r#type: "submit", "Add task" }
-                p { class: "form-feedback", role: "status", "{feedback}" }
-            }
+        select { value: "{value}", disabled, onchange: move |event| on_change.call(event.value().parse().ok()),
+            option { value: "", "Unassigned" }
+            for member in members { option { key: "{member.id}", value: "{member.id}", "{member.name}" } }
         }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn task_moves_between_groups_without_losing_date_or_assignment() {
-        let mut store = TaskStore::sample();
-        store.add("  Mop hallway  ", "2026-11-22", "Jade").unwrap();
-        let id = store.tasks.last().unwrap().id;
-        store.assign(id, "Ainsley".into());
-        assert!(Group::Overdue.contains(store.tasks.last().unwrap()));
-        store.set_completed(id, true);
-        assert!(Group::Completed.contains(store.tasks.last().unwrap()));
-        assert!(!Group::Overdue.contains(store.tasks.last().unwrap()));
-        store.set_completed(id, false);
-        let task = store.tasks.last().unwrap();
-        assert!(Group::Overdue.contains(task));
-        assert_eq!(
-            (&*task.title, &*task.due, &*task.assignee),
-            ("Mop hallway", "2026-11-22", "Ainsley")
-        );
-        store.add("Tomorrow", "2026-11-24", "").unwrap();
-        assert!(Group::Upcoming.contains(store.tasks.last().unwrap()));
-    }
-
-    #[test]
-    fn invalid_input_does_not_create_tasks() {
-        let mut store = TaskStore::sample();
-        let count = store.tasks.len();
-        assert!(store.add("  ", TODAY, "Jade").is_err());
-        assert!(store.add("Task", "2026-02-29", "Jade").is_err());
-        assert!(store.add("Task", "2026-11-31", "Jade").is_err());
-        assert!(store.add("Task", TODAY, "Unknown").is_err());
-        assert_eq!(store.tasks.len(), count);
-        assert!(valid_date("2028-02-29"));
-        assert!(!valid_date("2026-1-01"));
+#[component]
+fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
+    let mut data = use_context::<Resource<Result<Tasks, ServerFnError>>>();
+    let mut title = use_signal(String::new);
+    let mut due = use_signal(|| today);
+    let mut description = use_signal(String::new);
+    let mut assignee = use_signal(|| None::<i64>);
+    let mut error = use_signal(String::new);
+    let mut pending = use_signal(|| false);
+    let mut feedback = use_signal(String::new);
+    let selected_assignee = assignee().map(|id| id.to_string()).unwrap_or_default();
+    rsx! {
+        section { class: "add-task-panel", aria_labelledby: "add-task-heading",
+            h2 { id: "add-task-heading", "Add a task" }
+            form { onsubmit: move |event| {
+                event.prevent_default();
+                if pending() {
+                    return;
+                }
+                pending.set(true);
+                spawn(async move {
+                error.set(String::new());
+                feedback.set(String::new());
+                let task_title = title();
+                match save(Change::Create { title: task_title.clone(), description: description(), due: due(), assignee: assignee() }).await {
+                    Ok(()) => {
+                        feedback.set(format!("Added: {}", task_title.trim()));
+                        title.set(String::new());
+                        description.set(String::new());
+                        data.restart();
+                    }
+                    Err(message) => error.set(message),
+                }
+                pending.set(false);
+                });
+            },
+                label { r#for: "new-task-title", "Task" }
+                input { id: "new-task-title", name: "title", required: true, value: "{title}", disabled: pending(),
+                    oninput: move |event| title.set(event.value()) }
+                label { r#for: "new-task-description", "Description (optional)" }
+                textarea { id: "new-task-description", value: "{description}", disabled: pending(), oninput: move |event| description.set(event.value()) }
+                label { r#for: "new-task-date", "Due date" }
+                input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", disabled: pending(), oninput: move |event| due.set(event.value()) }
+                label {
+                    "Assigned to"
+                    MemberSelect { value: selected_assignee, members, disabled: pending(), on_change: move |value| assignee.set(value) }
+                }
+                if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
+                button { class: "primary-button", r#type: "submit", disabled: pending(), "Add task" }
+                p { class: "form-feedback", role: "status", "{feedback}" }
+            }
+        }
     }
 }
