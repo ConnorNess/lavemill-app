@@ -35,7 +35,6 @@ services:
         target: /data
 
   sqlite-web:
-    profiles: ["dev-tools"]
     image: ghcr.io/coleifer/sqlite-web@sha256:ec3c5811216fa5f7313e9f7269e1a1ca9c1f24f5f5ac3668c1f398c97afa362b
     depends_on:
       app:
