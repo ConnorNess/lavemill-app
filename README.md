@@ -16,7 +16,9 @@ Use http://localhost:8080/login or http://127.0.0.1:8080/login.
 Set `LAVEMILL_PORT` to change the port.
 The first build takes a while. Source edits reload automatically.
 To-dos use the household time zone, set with `LAVEMILL_TIME_ZONE` (default `Europe/London`).
-Shopping still resets on refresh.
+Shopping is shared across signed-in household members. Refresh to see changes
+from other devices. The app deletes items completed at least seven days ago the
+next time someone loads Home or reads or updates the shopping list.
 
 `docker compose up` starts the app and the SQLite viewer. Use
 `docker compose up app` to start just the app.

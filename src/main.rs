@@ -78,7 +78,7 @@ fn App() -> Element {
 
 #[component]
 fn HouseholdLayout() -> Element {
-    use_context_provider(|| Signal::new(shopping::ShoppingStore::sample()));
+    use_context_provider(|| Signal::new(None::<shopping::RemovedItem>));
     let route = use_route::<Route>();
     let viewer = use_server_future(auth::current_viewer)?;
     let viewer = viewer.read();
