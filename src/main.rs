@@ -1,5 +1,11 @@
 use dioxus::prelude::*;
 #[cfg(feature = "server")]
+mod accounts;
+mod auth;
+use auth::Login;
+mod users;
+use users::Users;
+#[cfg(feature = "server")]
 mod database;
 
 mod todos;
@@ -9,6 +15,8 @@ use shopping::{Shopping, ShoppingCard};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 enum Route {
+    #[route("/login?:error")]
+    Login { error: Option<String> },
     #[layout(HouseholdLayout)]
     #[route("/")]
     Home {},
@@ -16,6 +24,8 @@ enum Route {
     Todos {},
     #[route("/shopping")]
     Shopping {},
+    #[route("/users")]
+    Users {},
 }
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -31,7 +41,25 @@ fn main() {
             );
             std::process::exit(1);
         }
+        let args: Vec<_> = std::env::args().skip(1).collect();
+        if args.first().is_some_and(|arg| arg == "admin") {
+            if let Err(error) = accounts::admin_command(&args[1..]) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        let origin = std::env::var("LAVEMILL_ORIGIN").unwrap_or_default();
+        let router = auth::server::router(&origin).unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(1);
+        });
+        dioxus::serve(move || {
+            let router = router.clone();
+            async move { Ok(router) }
+        });
     }
+    #[cfg(not(feature = "server"))]
     dioxus::launch(App);
 }
 
@@ -48,6 +76,18 @@ fn HouseholdLayout() -> Element {
     use_context_provider(|| Signal::new(todos::TaskStore::sample()));
     use_context_provider(|| Signal::new(shopping::ShoppingStore::sample()));
     let route = use_route::<Route>();
+    let viewer = use_server_future(auth::current_viewer)?;
+    let viewer = viewer.read();
+    let is_admin = match viewer.as_ref() {
+        Some(Ok(Some(viewer))) => viewer.is_admin,
+        Some(Ok(None)) => {
+            return rsx! { main { class: "dashboard", a { href: "/login", "Sign in to continue" } } }
+        }
+        Some(Err(_)) => {
+            return rsx! { main { class: "dashboard", p { role: "alert", "Could not check your session. Reload to try again." } } }
+        }
+        None => return rsx! { main { class: "dashboard", p { "Checking your session…" } } },
+    };
     rsx! {
         a { class: "skip-link", href: "#main", "Skip to content" }
         header { class: "site-header",
@@ -60,6 +100,12 @@ fn HouseholdLayout() -> Element {
                     Link { to: Route::Home {}, class: if route == (Route::Home {}) { "nav-link active" } else { "nav-link" }, "Home" }
                     Link { to: Route::Todos {}, class: if route == (Route::Todos {}) { "nav-link active" } else { "nav-link" }, "To-dos" }
                     Link { to: Route::Shopping {}, class: if route == (Route::Shopping {}) { "nav-link active" } else { "nav-link" }, "Shopping" }
+                    if is_admin {
+                        Link { to: Route::Users {}, class: if route == (Route::Users {}) { "nav-link active" } else { "nav-link" }, "Users" }
+                    }
+                }
+                form { action: "/auth/logout", method: "post",
+                    button { class: "undo-button", r#type: "submit", "Sign out" }
                 }
             }
         }

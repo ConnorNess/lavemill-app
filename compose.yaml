@@ -7,9 +7,10 @@ services:
     working_dir: /app
     environment:
       LAVEMILL_DATABASE_PATH: /data/lavemill.sqlite3
+      LAVEMILL_ORIGIN: "${LAVEMILL_ORIGIN:-http://127.0.0.1:${LAVEMILL_PORT:-8080}}"
     healthcheck:
       # The HTML loading response stays open until the Dioxus build finishes.
-      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "2", "--header", "Accept: text/html", "--output", "/dev/null", "http://127.0.0.1:8080/"]
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "2", "--output", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 5s
       timeout: 3s
       # Allow cold builds to finish. Dioxus exits immediately on a build error.

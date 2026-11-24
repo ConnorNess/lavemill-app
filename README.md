@@ -1,124 +1,85 @@
 # Lavemill
 
-A little family app built with Dioxus. Rust and Cargo run in Docker, so there's
-nothing extra to install locally.
+Dioxus family app. Rust and Cargo run in Docker.
 
-## SQLite foundation
+## Local dev
 
-### Database viewer
-
-Start the app and the SQLite viewer together:
+Start Docker Desktop in Linux container mode. Run from `lavemill-app`.
 
 ```sh
-docker compose up
+docker compose up --build
+docker compose logs -f app
+docker compose down
 ```
 
-Open http://localhost:8082 to browse tables and run SELECT queries. The viewer
-starts once the app compiles, initializes the database, and serves its home page.
-If the initial build fails, the app exits and Compose leaves the viewer stopped.
-The viewer uses a pinned upstream sqlite-web image, opens the database read-only,
-and is available only on this machine.
-Set `LAVEMILL_DB_VIEWER_PORT` in your shell to override port 8082.
+Use http://localhost:8080/login or http://127.0.0.1:8080/login.
+Set `LAVEMILL_PORT` to change the port.
+The first build takes a while. Source edits reload automatically.
+To-dos and shopping still reset on refresh.
+
+`docker compose up` starts the app and the SQLite viewer. Use
+`docker compose up app` to start just the app.
+
+## Admin
+
+Create once on the Compose database.
 
 ```sh
-docker compose logs sqlite-web
-docker compose stop sqlite-web
+docker compose run --rm --no-deps app cargo run --locked --no-default-features --features server -- admin init connor Connor Ness
 ```
 
-Stopping the viewer leaves the app running. Use `docker compose up app` to start
-only the app. The app pages still use mock data, so the viewer shows only the
-empty `schema_migrations` table. The shared volume is writable so SQLite can create
-WAL coordination files, but the viewer's database connection rejects edits. No
-authentication is configured; keep this development tool bound to localhost.
+Lavemill args go after `--`. Use `admin init USERNAME FIRST_NAME LAST_NAME`.
+Quote names with spaces. Enter the password twice at the hidden prompts.
 
-### Storage and migrations
+`--rm` cleans up the one-off container. `--no-deps` skips other services.
+`--locked` keeps `Cargo.lock` fixed. The feature flags select the server build.
 
-The server initializes SQLite before serving requests. Compose sets
-`LAVEMILL_DATABASE_PATH=/data/lavemill.sqlite3` on the `household-data` volume;
-outside Compose the default is `data/lavemill.sqlite3`. Missing parent directories
-are created. Invalid paths or failed migrations stop startup with a path and error.
-The current pages still use mock data and reset on refresh.
+Use **Users** to add accounts, edit details, or reset passwords. A password
+reset signs the account out on all devices.
 
-Connections enable foreign keys, WAL mode and a five-second busy timeout.
-Only the server builds SQLite. The development image includes the `sqlite3` CLI:
+Reset the admin password from the host.
+
+```sh
+docker compose run --rm --no-deps app cargo run --locked --no-default-features --features server -- admin reset-password
+```
+
+## SQLite
+
+Compose uses `/data/lavemill.sqlite3` on the `household-data` volume.
+Outside Compose, `LAVEMILL_DATABASE_PATH` defaults to `data/lavemill.sqlite3`.
+`docker compose down` keeps the data. `down -v` deletes the volume.
 
 ```sh
 docker compose exec app sqlite3 /data/lavemill.sqlite3 .schema
-docker compose exec app cargo test --locked --no-default-features --features server
+docker compose stop sqlite-web
 ```
 
-The initial schema contains only `schema_migrations`. To add a feature schema,
-add a numbered SQL file under `src/migrations/` and append its positive version
-and `include_str!` SQL to `MIGRATIONS` in `src/database.rs`. Keep versions strictly
-increasing and never edit an applied migration. SQL must not contain transaction
-control: the runner wraps all pending migrations and ledger entries in one
-immediate transaction. Unknown or non-prefix database histories fail startup.
+Viewer runs at http://127.0.0.1:8082 after the app is healthy. Override with
+`LAVEMILL_DB_VIEWER_PORT`. It's read-only and unauthenticated. Use it with
+dev data only.
 
-For an isolated persistence check, use a separate Compose project and unused ports
-(e.g. set `LAVEMILL_PORT=8081` and `LAVEMILL_DB_VIEWER_PORT=8083` in your shell).
-Build/start it with `docker compose -p lavemill-sqlite-check up --build -d`. Wait
-for compilation and confirm its home page loads before running:
+Add numbered SQL files in `src/migrations/` and register them in `MIGRATIONS`
+in `src/database.rs`. Use increasing versions. Leave applied migrations alone.
+The runner handles transactions.
+
+To check persistence, use a separate Compose project and port. Write a test
+row, recreate the app with `up -d --force-recreate`, and query the row again.
+
+## Checks
 
 ```sh
-docker compose -p lavemill-sqlite-check exec app sqlite3 /data/lavemill.sqlite3 "CREATE TABLE persistence_check(value TEXT); INSERT INTO persistence_check VALUES ('survived');"
-docker compose -p lavemill-sqlite-check up -d --force-recreate
-docker compose -p lavemill-sqlite-check exec app sqlite3 /data/lavemill.sqlite3 "SELECT value FROM persistence_check;"
-docker compose -p lavemill-sqlite-check exec app sqlite3 /data/lavemill.sqlite3 "DROP TABLE persistence_check;"
-docker compose -p lavemill-sqlite-check down
+docker compose run --rm --no-deps app cargo fmt --check
+docker compose run --rm --no-deps app cargo test --locked --no-default-features --features server
+docker compose run --rm --no-deps app cargo check --locked --no-default-features --features web --target wasm32-unknown-unknown
 ```
 
-The query must return `survived`. `down` retains data; `down -v` deletes that
-project's volumes. Database files are ignored by Git. Backup/restore procedures
-and production deployment will be added in a separate task.
-
-Start Docker Desktop with Linux containers enabled. Run everything below from
-`lavemill-app`.
-
-## First run
-
-```sh
-docker compose build
-docker compose up
-```
-
-Open the app at http://localhost:8080 and the SQLite viewer at http://localhost:8082
-once the app finishes compiling and initializes the database. The first build
-takes a while. Source edits are picked up while the app is running.
-
-`Cargo.lock` is included. If it ever needs generating from scratch:
+Regenerate the lockfile if needed.
 
 ```sh
 docker compose run --rm --no-deps app cargo generate-lockfile
 ```
 
-## Docker commands
+## HTTPS
 
-```sh
-# Start
-docker compose up
-
-# Or run in the background
-docker compose up -d
-
-# Logs
-docker compose logs -f app
-
-# Stop
-docker compose down
-
-# Rebuild after changing the Dockerfile
-docker compose up --build
-```
-
-## Cargo commands
-
-```sh
-# Check formatting
-docker compose run --rm --no-deps app cargo fmt --check
-
-# Check the server
-docker compose run --rm --no-deps app cargo check --locked --no-default-features --features server
-
-# Check the web client
-docker compose run --rm --no-deps app cargo check --locked --no-default-features --features web --target wasm32-unknown-unknown
-```
+Set `LAVEMILL_ORIGIN` to the public origin, e.g. `https://lavemill.example.com`.
+Point cloudflared at the release server. Keep the SQLite viewer stopped.
