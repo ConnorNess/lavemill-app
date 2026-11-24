@@ -8,6 +8,8 @@ use users::Users;
 #[cfg(feature = "server")]
 mod database;
 
+#[cfg(feature = "server")]
+mod todo_storage;
 mod todos;
 use todos::{TasksCard, Todos};
 mod shopping;
@@ -73,7 +75,6 @@ fn App() -> Element {
 
 #[component]
 fn HouseholdLayout() -> Element {
-    use_context_provider(|| Signal::new(todos::TaskStore::sample()));
     use_context_provider(|| Signal::new(shopping::ShoppingStore::sample()));
     let route = use_route::<Route>();
     let viewer = use_server_future(auth::current_viewer)?;

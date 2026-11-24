@@ -224,8 +224,13 @@ pub mod server {
         let users_page = path.trim_end_matches('/') == "/users";
         let users_api = path.starts_with("/api/users");
         let session_api = path == "/api/session";
-        let account_request =
-            page || users_api || session_api || path == "/login" || path.starts_with("/auth/");
+        let todos_api = path == "/api/todos" || path.starts_with("/api/todos/");
+        let account_request = page
+            || users_api
+            || todos_api
+            || session_api
+            || path == "/login"
+            || path.starts_with("/auth/");
         if account_request
             && request.method() != Method::GET
             && request.method() != Method::HEAD
@@ -237,7 +242,7 @@ pub mod server {
             ).into_response());
         }
 
-        if page || users_api || session_api {
+        if page || users_api || todos_api || session_api {
             let viewer = match state.token(request.headers()) {
                 Some(token) => match run_blocking(move || lookup_session(&token)).await {
                     Ok(viewer) => viewer,
@@ -253,7 +258,9 @@ pub mod server {
                     request.extensions_mut().insert(viewer);
                 }
                 None if page => return private(Redirect::to("/login").into_response()),
-                None if users_api => return private(StatusCode::UNAUTHORIZED.into_response()),
+                None if users_api || todos_api => {
+                    return private(StatusCode::UNAUTHORIZED.into_response())
+                }
                 None => {}
             }
         }
