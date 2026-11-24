@@ -134,3 +134,7 @@ Under **Calendar ? Manage calendars**, connect Outlook, save a calendar selectio
 **Share with household**. Home combines the current week from shared Outlook and
 Google calendars. Outlook events marked personal, private, or confidential
 appear as Busy.
+
+The **Calendar** page shows shared events in a weekly time grid or a month
+grid. Use **Week** and **Month** to change views, and select a day in the
+month grid to see all of its events. Home shows the current week's agenda.

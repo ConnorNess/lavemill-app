@@ -269,38 +269,111 @@ fn period_route(view: Option<String>, date: String) -> Route {
 
 #[component]
 fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
-    let date_query = date.clone();
-    let data = use_server_future(move || {
-        calendar_view(CalendarViewQuery {
-            view: None,
-            date: date_query.clone(),
-        })
-    })?;
+    let query = CalendarViewQuery { view, date };
+    let data = use_server_future(move || calendar_view(query.clone()))?;
+    let mut selected_day = use_signal(|| None::<String>);
     let data = data.read();
-    match data.as_ref() {
-        Some(Ok(data)) => rsx! {
-            div { class: "calendar-toolbar",
-                h2 { "{data.label}" }
+    let Some(result) = data.as_ref() else {
+        return rsx! { p { "Loading the shared calendar?" } };
+    };
+    let Ok(data) = result else {
+        return rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } };
+    };
+    let selected = selected_day().unwrap_or_else(|| data.date.clone());
+    let view = if data.month { "month" } else { "week" };
+    rsx! {
+        div { class: "calendar-toolbar",
+            h2 { "{data.label}" }
+            div { class: "calendar-toolbar-actions",
+                nav { class: "calendar-nav", aria_label: "Calendar view",
+                    Link {
+                        to: period_route(Some("week".into()), selected.clone()),
+                        aria_current: if !data.month { "true" } else { "false" },
+                        "Week"
+                    }
+                    Link {
+                        to: period_route(Some("month".into()), selected.clone()),
+                        aria_current: if data.month { "true" } else { "false" },
+                        "Month"
+                    }
+                }
                 nav { class: "calendar-nav", aria_label: "Calendar dates",
-                    Link { to: period_route(view.clone(), data.previous.clone()), "Previous" }
-                    Link { to: period_route(view.clone(), data.today.clone()), "Today" }
-                    Link { to: period_route(view, data.next.clone()), "Next" }
+                    Link { to: period_route(Some(view.into()), data.previous.clone()), "Previous" }
+                    Link { to: period_route(Some(view.into()), data.today.clone()), "Today" }
+                    Link { to: period_route(Some(view.into()), data.next.clone()), "Next" }
                 }
             }
-            if data.incomplete {
-                p { role: "status", "Some shared calendars could not be loaded." }
-            }
-            if !data.configured {
-                p { class: "row-note", "Calendar linking is unavailable on this server." }
-            } else if !data.has_shared_calendars {
-                p { class: "row-note", "Your household hasn?t shared a calendar yet." }
-            }
-            WeekGrid { days: data.days.clone(), today: data.today.clone() }
-        },
-        Some(Err(_)) => {
-            rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } }
         }
-        None => rsx! { p { "Loading the shared calendar?" } },
+        if data.incomplete {
+            p { role: "status", "Some shared calendars could not be loaded." }
+        }
+        if !data.configured {
+            p { class: "row-note", "Calendar linking is unavailable on this server." }
+        } else if !data.has_shared_calendars {
+            p { class: "row-note", "Your household hasn?t shared a calendar yet." }
+        }
+        if data.month {
+            MonthGrid {
+                days: data.days.clone(), today: data.today.clone(), selected,
+                on_select: move |day| selected_day.set(Some(day)),
+            }
+        } else {
+            WeekGrid { days: data.days.clone(), today: data.today.clone() }
+        }
+    }
+}
+
+#[component]
+fn MonthGrid(
+    days: Vec<CalendarDay>,
+    today: String,
+    selected: String,
+    on_select: EventHandler<String>,
+) -> Element {
+    let selected_day = days.iter().find(|day| day.date == selected);
+    rsx! {
+        div { class: "calendar-month", role: "group", aria_label: "Month calendar",
+            for day in days.iter().take(7) {
+                div { key: "heading-{day.weekday}", class: "calendar-month-weekday", "{day.weekday}" }
+            }
+            for day in &days {
+                button {
+                    key: "{day.date}",
+                    class: "calendar-month-day",
+                    class: if day.outside_month { "calendar-outside-month" },
+                    r#type: "button",
+                    aria_current: if day.date == today { "date" } else { "false" },
+                    aria_pressed: day.date == selected,
+                    aria_controls: "calendar-day-events",
+                    aria_label: "{day.label}, {day.events.len()} events",
+                    onclick: { let date = day.date.clone(); move |_| on_select.call(date.clone()) },
+                    span { class: "calendar-month-number", "{day.number}" }
+                    for (index, event) in day.events.iter().take(3).enumerate() {
+                        span { key: "{index}", class: "calendar-month-event", "{event.title}" }
+                    }
+                    if day.events.len() > 3 {
+                        span { class: "calendar-month-more", "+{day.events.len() - 3} more" }
+                    }
+                }
+            }
+        }
+        if let Some(day) = selected_day {
+            section { id: "calendar-day-events", class: "calendar-day-details", aria_labelledby: "calendar-day-title",
+                h3 { id: "calendar-day-title", "{day.label}" }
+                if day.events.is_empty() {
+                    p { class: "row-note", "No shared events on this day." }
+                } else {
+                    ul { class: "item-list",
+                        for (index, event) in day.events.iter().enumerate() {
+                            li { key: "{index}", class: "calendar-day-event",
+                                span { "{event.title}" }
+                                span { class: "row-note", "{event.when}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -412,6 +485,22 @@ fn scheduled_blocks(events: &[CalendarViewEvent]) -> Vec<ScheduledBlock<'_>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calendar_routes_round_trip_view_date_and_oauth_notice() {
+        let route = period_route(Some("month".into()), "2026-12-31".into());
+        assert_eq!(route.to_string().parse::<Route>().unwrap(), route);
+        assert_eq!(
+            "/calendar?notice=outlook_cancelled"
+                .parse::<Route>()
+                .unwrap(),
+            Route::Calendar {
+                view: None,
+                date: None,
+                notice: Some("outlook_cancelled".into())
+            }
+        );
+    }
 
     #[test]
     fn week_grid_gives_overlapping_events_separate_lanes() {
