@@ -3,11 +3,14 @@ use super::{
     ProviderError, Url,
 };
 use crate::{
-    calendar::{Agenda, AgendaDay, AgendaEntry, Provider},
+    calendar::{
+        Agenda, AgendaDay, AgendaEntry, CalendarDay, CalendarViewData, CalendarViewEvent, Provider,
+    },
     household_time,
 };
 use chrono::{
-    DateTime, Datelike, Days, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone, Utc,
+    DateTime, Datelike, Days, Months, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone,
+    Timelike, Utc,
 };
 use chrono_tz::Tz;
 use serde::Deserialize;
@@ -23,7 +26,7 @@ struct SharedCalendar {
 }
 
 #[derive(Clone, Copy)]
-struct Week {
+struct DateRange {
     zone: Tz,
     today: NaiveDate,
     first: NaiveDate,
@@ -69,16 +72,53 @@ impl SharedCalendar {
     }
 }
 
+struct SharedEvents {
+    has_shared_calendars: bool,
+    incomplete: bool,
+    events: Vec<CalendarEvent>,
+}
+
 impl CalendarClients {
+    fn has_calendar_provider(&self) -> bool {
+        self.google.is_some() || self.outlook.is_some()
+    }
+
     pub async fn weekly_agenda(&self) -> Result<Option<Agenda>, &'static str> {
-        if self.google.is_none() && self.outlook.is_none() {
+        if !self.has_calendar_provider() {
             return Ok(None);
         }
         let zone = household_time::time_zone()?;
-        let week = Week::new(zone, Utc::now().with_timezone(&zone).date_naive());
-        let (start, end) = week
+        let week = DateRange::week(zone, Utc::now().with_timezone(&zone).date_naive());
+        Ok(Some(self.shared_events(week).await?.agenda(week)))
+    }
+
+    pub async fn calendar_view(
+        &self,
+        month: bool,
+        date: Option<&str>,
+    ) -> Result<CalendarViewData, &'static str> {
+        let zone = household_time::time_zone()?;
+        let today = Utc::now().with_timezone(&zone).date_naive();
+        let anchor = date
+            .and_then(|value| value.parse::<NaiveDate>().ok())
+            .filter(|value| (1..=9998).contains(&value.year()))
+            .unwrap_or(today);
+        let period = ViewPeriod::new(zone, today, anchor, month);
+        let mut view = period.data;
+        view.configured = self.has_calendar_provider();
+        if view.configured {
+            let events = self.shared_events(period.range).await?;
+            view.has_shared_calendars = events.has_shared_calendars;
+            view.incomplete = events.incomplete;
+            fill_view_days(&mut view.days, period.range, events.events);
+        }
+        Ok(view)
+    }
+
+    async fn shared_events(&self, range: DateRange) -> Result<SharedEvents, &'static str> {
+        let (start, end) = range
             .bounds()
-            .ok_or("Could not determine the calendar week.")?;
+            .ok_or("Could not determine the calendar date range.")?;
         // Google's all-day query boundaries use each source calendar's time zone.
         // Include the largest possible offset difference and filter by date below.
         let start = (start - TimeDelta::hours(26)).to_rfc3339();
@@ -93,7 +133,7 @@ impl CalendarClients {
             requests.spawn(async move {
                 let result = tokio::time::timeout(
                     Duration::from_secs(10),
-                    client.weekly_events(&source, &start, &end),
+                    client.events_in_range(&source, &start, &end),
                 )
                 .await
                 .unwrap_or(Err(ProviderError::Unavailable));
@@ -112,41 +152,60 @@ impl CalendarClients {
         // drop results for connections that were changed or disconnected.
         let mut current = run_blocking(|| list_shared(&connection()?)).await?;
         current.retain(|source| self.get(source.provider).is_some());
-        let mut agenda = assemble_agenda(week, current, results);
-        agenda.incomplete |= incomplete && agenda.has_shared_calendars;
-        Ok(Some(agenda))
+        let mut shared = collect_shared_events(current, results);
+        shared.incomplete |= incomplete && shared.has_shared_calendars;
+        Ok(shared)
     }
 }
 
-fn assemble_agenda(
-    week: Week,
+impl SharedEvents {
+    fn agenda(self, week: DateRange) -> Agenda {
+        let entries = self
+            .events
+            .into_iter()
+            .filter_map(|event| week.agenda_entry(event))
+            .collect();
+        Agenda {
+            has_shared_calendars: self.has_shared_calendars,
+            incomplete: self.incomplete,
+            days: week.group_entries(entries),
+        }
+    }
+}
+
+fn collect_shared_events(
     current: Vec<SharedCalendar>,
     mut results: Vec<(SharedCalendar, Result<Vec<CalendarEvent>, ProviderError>)>,
-) -> Agenda {
-    let mut entries = Vec::new();
+) -> SharedEvents {
+    let mut events = Vec::new();
     let mut incomplete = false;
     for source in &current {
         match results
             .iter_mut()
             .find(|(queried, _)| queried.same_share(source))
         {
-            Some((_, Ok(events))) => entries.extend(
-                events
-                    .drain(..)
-                    .filter_map(|event| week.agenda_entry(event)),
-            ),
+            Some((_, Ok(found))) => events.append(found),
             _ => incomplete = true,
         }
     }
-    Agenda {
+    SharedEvents {
         has_shared_calendars: !current.is_empty(),
         incomplete,
-        days: week.group_entries(entries),
+        events,
     }
 }
 
+#[cfg(test)]
+fn assemble_agenda(
+    week: DateRange,
+    current: Vec<SharedCalendar>,
+    results: Vec<(SharedCalendar, Result<Vec<CalendarEvent>, ProviderError>)>,
+) -> Agenda {
+    collect_shared_events(current, results).agenda(week)
+}
+
 impl CalendarClient {
-    async fn weekly_events(
+    async fn events_in_range(
         &self,
         source: &SharedCalendar,
         start: &str,
@@ -335,8 +394,165 @@ fn list_shared(db: &Connection) -> Result<Vec<SharedCalendar>, &'static str> {
         .map_err(database_error)
 }
 
-impl Week {
-    fn new(zone: Tz, today: NaiveDate) -> Self {
+impl CalendarEvent {
+    fn visible_title(&self) -> Option<String> {
+        if self.status.as_deref() == Some("cancelled") {
+            return None;
+        }
+        let title = if matches!(self.visibility.as_deref(), Some("private" | "confidential")) {
+            None
+        } else {
+            self.summary
+                .as_ref()
+                .filter(|title| !title.trim().is_empty())
+        };
+        Some(title.cloned().unwrap_or_else(|| "Busy".to_owned()))
+    }
+}
+
+struct ViewPeriod {
+    range: DateRange,
+    data: CalendarViewData,
+}
+
+impl ViewPeriod {
+    fn new(zone: Tz, today: NaiveDate, anchor: NaiveDate, month: bool) -> Self {
+        let monday =
+            |date: NaiveDate| date - Days::new(date.weekday().num_days_from_monday().into());
+        let (first, until, previous, next, label) = if month {
+            let month_start = anchor.with_day(1).expect("Every month has a first day");
+            let next_month = month_start + Months::new(1);
+            let month_end = next_month - Days::new(1);
+            (
+                monday(month_start),
+                monday(month_end) + Days::new(7),
+                anchor - Months::new(1),
+                anchor + Months::new(1),
+                month_start.format("%B %Y").to_string(),
+            )
+        } else {
+            let first = monday(anchor);
+            let last = first + Days::new(6);
+            (
+                first,
+                last + Days::new(1),
+                anchor - Days::new(7),
+                anchor + Days::new(7),
+                format!("{} ? {}", first.format("%-d %b"), last.format("%-d %b %Y")),
+            )
+        };
+        let days = first
+            .iter_days()
+            .take_while(|day| *day < until)
+            .map(|day| CalendarDay {
+                date: day.to_string(),
+                weekday: day.format("%a").to_string(),
+                number: day.day(),
+                label: day.format("%A %-d %B %Y").to_string(),
+                outside_month: month && day.month() != anchor.month(),
+                events: Vec::new(),
+            })
+            .collect();
+        Self {
+            range: DateRange {
+                zone,
+                today,
+                first,
+                until,
+            },
+            data: CalendarViewData {
+                month,
+                date: anchor.to_string(),
+                today: today.to_string(),
+                previous: previous.to_string(),
+                next: next.to_string(),
+                label,
+                configured: false,
+                has_shared_calendars: false,
+                incomplete: false,
+                days,
+            },
+        }
+    }
+}
+
+fn fill_view_days(days: &mut [CalendarDay], range: DateRange, events: Vec<CalendarEvent>) {
+    let minute = |time: DateTime<Tz>| time.num_seconds_from_midnight() / 60;
+    for event in events {
+        let Some(title) = event.visible_title() else {
+            continue;
+        };
+        let (Some(start), Some(end)) = (event.start, event.end) else {
+            continue;
+        };
+        if let (Some(start), Some(end)) = (start.date, end.date) {
+            let (Ok(start), Ok(end)) = (start.parse::<NaiveDate>(), end.parse::<NaiveDate>())
+            else {
+                continue;
+            };
+            for day in start
+                .max(range.first)
+                .iter_days()
+                .take_while(|day| *day < end.min(range.until))
+            {
+                let index = (day - range.first).num_days() as usize;
+                days[index].events.push(CalendarViewEvent {
+                    title: title.clone(),
+                    when: "All day".into(),
+                    minutes: None,
+                });
+            }
+        } else if let (Some(start), Some(end)) = (start.date_time, end.date_time) {
+            let (Ok(start), Ok(end)) = (
+                DateTime::parse_from_rfc3339(&start),
+                DateTime::parse_from_rfc3339(&end),
+            ) else {
+                continue;
+            };
+            if end < start {
+                continue;
+            }
+            let (start, end) = (
+                start.with_timezone(&range.zone),
+                end.with_timezone(&range.zone),
+            );
+            for day in start
+                .date_naive()
+                .max(range.first)
+                .iter_days()
+                .take_while(|day| *day <= end.date_naive() && *day < range.until)
+            {
+                let starts_today = start.date_naive() == day;
+                let ends_today = end.date_naive() == day;
+                if !starts_today && ends_today && end.time() == NaiveTime::MIN {
+                    continue;
+                }
+                let first = if starts_today { minute(start) } else { 0 };
+                let until = if ends_today { minute(end) } else { 1440 };
+                let when = match (starts_today, ends_today) {
+                    (true, true) if start == end => start.format("%H:%M").to_string(),
+                    (true, true) => format!("{}?{}", start.format("%H:%M"), end.format("%H:%M")),
+                    (true, false) => format!("{} onward", start.format("%H:%M")),
+                    (false, true) => format!("Until {}", end.format("%H:%M")),
+                    (false, false) => "Continues all day".into(),
+                };
+                let index = (day - range.first).num_days() as usize;
+                days[index].events.push(CalendarViewEvent {
+                    title: title.clone(),
+                    when,
+                    minutes: Some((first, until.max(first + 1))),
+                });
+            }
+        }
+    }
+    for day in days {
+        day.events
+            .sort_by(|a, b| (a.minutes, &a.title).cmp(&(b.minutes, &b.title)));
+    }
+}
+
+impl DateRange {
+    fn week(zone: Tz, today: NaiveDate) -> Self {
         let first = today - Days::new(today.weekday().num_days_from_monday().into());
         let until = first + Days::new(7);
         Self {
@@ -360,20 +576,7 @@ impl Week {
     }
 
     fn agenda_entry(self, event: CalendarEvent) -> Option<DatedEntry> {
-        if event.status.as_deref() == Some("cancelled") {
-            return None;
-        }
-        let title = if matches!(
-            event.visibility.as_deref(),
-            Some("private" | "confidential")
-        ) {
-            "Busy".to_owned()
-        } else {
-            event
-                .summary
-                .filter(|title| !title.trim().is_empty())
-                .unwrap_or_else(|| "Busy".to_owned())
-        };
+        let title = event.visible_title()?;
         let (start, end) = (event.start?, event.end?);
         if let (Some(start), Some(end)) = (start.date, end.date) {
             let (start, end): (NaiveDate, NaiveDate) = (start.parse().ok()?, end.parse().ok()?);
@@ -478,8 +681,44 @@ mod tests {
     }
 
     #[test]
+    fn calendar_month_includes_leap_day_and_full_monday_first_weeks() {
+        let zone = chrono_tz::Europe::London;
+        let period = ViewPeriod::new(zone, date("2024-02-15"), date("2024-02-15"), true);
+        assert_eq!(period.data.days.first().unwrap().date, "2024-01-29");
+        assert_eq!(period.data.days.last().unwrap().date, "2024-03-03");
+        assert!(period.data.days[0].outside_month);
+        assert!(period
+            .data
+            .days
+            .iter()
+            .any(|day| day.date == "2024-02-29" && !day.outside_month));
+        let december = ViewPeriod::new(zone, date("2024-02-15"), date("2024-12-31"), true);
+        assert_eq!(december.data.next, "2025-01-31");
+    }
+
+    #[test]
+    fn calendar_view_segments_overnight_events_and_preserves_privacy_on_dst_week() {
+        let mut period = ViewPeriod::new(
+            chrono_tz::Europe::London,
+            date("2026-03-29"),
+            date("2026-03-29"),
+            false,
+        );
+        let mut private = event("2026-03-28T23:30:00Z", "2026-03-29T02:00:00Z", false);
+        private.visibility = Some("private".into());
+        let all_day = event("2026-03-28", "2026-03-30", true);
+        fill_view_days(&mut period.data.days, period.range, vec![private, all_day]);
+        let weekend = &period.data.days[5..];
+        assert_eq!(weekend[0].events[0].minutes, None);
+        assert_eq!(weekend[0].events[1].minutes, Some((1410, 1440)));
+        assert_eq!(weekend[1].events[1].minutes, Some((0, 180)));
+        assert_eq!(weekend[1].events[1].title, "Busy");
+        assert!(period.data.days[0].events.is_empty());
+    }
+
+    #[test]
     fn agenda_redacts_private_titles_and_respects_week_boundaries_and_dst() {
-        let week = Week::new(chrono_tz::Europe::London, date("2026-03-29"));
+        let week = DateRange::week(chrono_tz::Europe::London, date("2026-03-29"));
         let (start, end) = week.bounds().unwrap();
         assert_eq!(start.to_rfc3339(), "2026-03-23T00:00:00+00:00");
         assert_eq!(end.to_rfc3339(), "2026-03-30T00:00:00+01:00");
@@ -548,7 +787,7 @@ mod tests {
 
     #[test]
     fn outlook_events_preserve_all_day_dates_and_redact_sensitive_subjects() {
-        let week = Week::new(chrono_tz::Europe::London, date("2026-03-29"));
+        let week = DateRange::week(chrono_tz::Europe::London, date("2026-03-29"));
         let outlook_time = |date_time: &str| OutlookTime {
             date_time: date_time.to_owned(),
             time_zone: "UTC".into(),
@@ -585,7 +824,7 @@ mod tests {
 
     #[test]
     fn shared_agenda_keeps_healthy_results_and_drops_unshared_or_replaced_connections() {
-        let week = Week::new(chrono_tz::Europe::London, date("2026-03-29"));
+        let week = DateRange::week(chrono_tz::Europe::London, date("2026-03-29"));
         let source = |provider, generation, token| SharedCalendar {
             provider,
             user: 1,

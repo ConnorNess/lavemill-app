@@ -69,6 +69,55 @@ pub struct AgendaEntry {
     pub when: String,
 }
 
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub struct CalendarViewData {
+    pub month: bool,
+    pub date: String,
+    pub today: String,
+    pub previous: String,
+    pub next: String,
+    pub label: String,
+    pub configured: bool,
+    pub has_shared_calendars: bool,
+    pub incomplete: bool,
+    pub days: Vec<CalendarDay>,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub struct CalendarDay {
+    pub date: String,
+    pub weekday: String,
+    pub number: u32,
+    pub label: String,
+    pub outside_month: bool,
+    pub events: Vec<CalendarViewEvent>,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub struct CalendarViewEvent {
+    pub title: String,
+    pub when: String,
+    pub minutes: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct CalendarViewQuery {
+    view: Option<String>,
+    date: Option<String>,
+}
+
+#[get("/api/calendar/view?:query")]
+async fn calendar_view(query: CalendarViewQuery) -> Result<CalendarViewData, ServerFnError> {
+    let (_, clients) = calendar_context()?;
+    clients
+        .calendar_view(
+            query.view.as_deref() == Some("month"),
+            query.date.as_deref(),
+        )
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[get("/api/calendar/connection")]
 async fn connection_status() -> Result<ConnectionStatus, ServerFnError> {
     provider_status(Provider::Google).await
