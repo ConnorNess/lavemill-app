@@ -18,6 +18,8 @@ url = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", default-features = false, features = ["now"], optional = true }
 chrono-tz = { version = "0.10", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+ring = { version = "0.17", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -28,4 +30,5 @@ web = ["dioxus/web"]
 server = [
     "dioxus/server", "dep:rusqlite", "dep:argon2", "dep:getrandom", "dep:rpassword",
     "dep:base64", "dep:sha2", "dep:tokio", "dep:url", "dep:chrono", "dep:chrono-tz",
+    "dep:reqwest", "dep:ring",
 ]

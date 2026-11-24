@@ -86,3 +86,24 @@ docker compose run --rm --no-deps app cargo generate-lockfile
 
 Set `LAVEMILL_ORIGIN` to the public origin, e.g. `https://lavemill.example.com`.
 Point cloudflared at the release server. Keep the SQLite viewer stopped.
+
+## Google Calendar
+
+Enable the Google Calendar API in a Google Cloud project and create a Web
+application OAuth client. Register the exact callback at the app origin, for
+example `http://127.0.0.1:8080/calendar/google/callback` locally or
+`https://lavemill.example.com/calendar/google/callback` in production. Open
+Lavemill at that same origin when connecting a calendar.
+
+Set `LAVEMILL_GOOGLE_CLIENT_ID`, `LAVEMILL_GOOGLE_CLIENT_SECRET`, and
+`LAVEMILL_GOOGLE_TOKEN_KEY` in the server environment or the ignored local
+`.env` file for Compose. Generate the token key once with Python:
+
+```sh
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Keep the key across deployments and backups. Changing it means members must
+reconnect. With all three settings unset, calendar linking is disabled.
+For an external OAuth app in Testing, add each Google account as a test user.
+Google refresh tokens for Calendar expire after seven days in Testing mode.

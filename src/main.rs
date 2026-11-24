@@ -3,6 +3,10 @@ use dioxus::prelude::*;
 mod accounts;
 mod auth;
 use auth::Login;
+mod calendar;
+use calendar::Calendar;
+#[cfg(feature = "server")]
+mod google_calendar;
 mod users;
 use users::Users;
 #[cfg(feature = "server")]
@@ -29,6 +33,8 @@ enum Route {
     Todos {},
     #[route("/shopping")]
     Shopping {},
+    #[route("/calendar?:notice")]
+    Calendar { notice: Option<String> },
     #[route("/users")]
     Users {},
 }
@@ -104,6 +110,7 @@ fn HouseholdLayout() -> Element {
                     Link { to: Route::Home {}, class: if route == (Route::Home {}) { "nav-link active" } else { "nav-link" }, "Home" }
                     Link { to: Route::Todos {}, class: if route == (Route::Todos {}) { "nav-link active" } else { "nav-link" }, "To-dos" }
                     Link { to: Route::Shopping {}, class: if route == (Route::Shopping {}) { "nav-link active" } else { "nav-link" }, "Shopping" }
+                    Link { to: Route::Calendar { notice: None }, class: if matches!(route, Route::Calendar { .. }) { "nav-link active" } else { "nav-link" }, "Calendar" }
                     if is_admin {
                         Link { to: Route::Users {}, class: if route == (Route::Users {}) { "nav-link active" } else { "nav-link" }, "Users" }
                     }
