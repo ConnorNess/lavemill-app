@@ -35,7 +35,6 @@ svg { display: block; flex-shrink: 0; }
 .user-list { display: grid; gap: 20px; }
 .reset-form { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .reset-form button { justify-self: start; }
-.password-hint { color: var(--muted); }
 @media (max-width: 680px) {
     .users-grid { grid-template-columns: minmax(0, 1fr); }
 }

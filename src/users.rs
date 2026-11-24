@@ -250,9 +250,8 @@ fn PasswordField(id: String, label: &'static str, mut password: Signal<String>) 
     rsx! {
         label { r#for: "{id}", "{label}" }
         input { id: "{id}", name: "password", r#type: "password", autocomplete: "new-password",
-            value: "{password}", required: true, minlength: "15", maxlength: "128",
+            value: "{password}", required: true,
             oninput: move |event| password.set(event.value()) }
-        small { class: "password-hint", "Use at least 15 characters." }
     }
 }
 

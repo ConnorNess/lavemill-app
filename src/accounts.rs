@@ -35,8 +35,8 @@ pub fn details(
 }
 
 pub fn hash_password(password: &str) -> Result<String, &'static str> {
-    if password.len() > 1024 || !(15..=128).contains(&password.chars().count()) {
-        return Err("Use a password of 15–128 characters.");
+    if password.is_empty() {
+        return Err("Enter a password.");
     }
     let mut random = [0; 16];
     getrandom::fill(&mut random).map_err(|_| "Could not generate password salt.")?;
@@ -48,12 +48,11 @@ pub fn hash_password(password: &str) -> Result<String, &'static str> {
 }
 
 pub fn verify_password(password: &str, hash: &str) -> bool {
-    password.len() <= 1024
-        && PasswordHash::new(hash).is_ok_and(|hash| {
-            Argon2::default()
-                .verify_password(password.as_bytes(), &hash)
-                .is_ok()
-        })
+    PasswordHash::new(hash).is_ok_and(|hash| {
+        Argon2::default()
+            .verify_password(password.as_bytes(), &hash)
+            .is_ok()
+    })
 }
 
 pub fn save_error(error: rusqlite::Error) -> &'static str {
@@ -161,8 +160,11 @@ mod tests {
     fn migration_persists_one_admin_and_reset_revokes_sessions() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("accounts.sqlite3");
-        let old_hash = hash_password("first lengthy password").unwrap();
-        let new_hash = hash_password("second lengthy password").unwrap();
+        let old_password = "short";
+        let new_password = "long".repeat(300);
+        let old_hash = hash_password(old_password).unwrap();
+        let new_hash = hash_password(&new_password).unwrap();
+        assert!(hash_password("").is_err());
         crate::database::initialize(&path).unwrap();
         let mut db = crate::database::open(&path).unwrap();
         create_admin(
@@ -189,8 +191,9 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert!(!verify_password("first lengthy password", &hash));
-        assert!(verify_password("second lengthy password", &hash));
+        assert!(verify_password(old_password, &old_hash));
+        assert!(!verify_password(old_password, &hash));
+        assert!(verify_password(&new_password, &hash));
         assert_eq!(
             db.query_row("SELECT count(*) FROM sessions", [], |row| row
                 .get::<_, i64>(0))

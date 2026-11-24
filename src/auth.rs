@@ -30,7 +30,7 @@ pub fn Login(error: Option<String>) -> Element {
                     label { r#for: "login-username", "Username" }
                     input { id: "login-username", name: "username", autocomplete: "username", maxlength: "40", required: true }
                     label { r#for: "login-password", "Password" }
-                    input { id: "login-password", name: "password", r#type: "password", autocomplete: "current-password", maxlength: "128", required: true }
+                    input { id: "login-password", name: "password", r#type: "password", autocomplete: "current-password", required: true }
                     if let Some(message) = message {
                         p { class: "form-error", role: "alert", "{message}" }
                     }
