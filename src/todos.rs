@@ -12,6 +12,7 @@ pub(crate) struct Task {
     pub assignee_id: Option<i64>,
     pub assignee: Option<String>,
     pub status: String,
+    pub can_reopen: bool,
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
@@ -27,6 +28,14 @@ pub(crate) struct Tasks {
     pub members: Vec<Member>,
 }
 
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub(crate) enum Repeat {
+    Once,
+    Daily,
+    Weekly,
+    Monthly,
+}
+
 #[derive(Deserialize, Serialize)]
 pub(crate) enum Change {
     Create {
@@ -34,6 +43,7 @@ pub(crate) enum Change {
         description: String,
         due: String,
         assignee: Option<i64>,
+        repeat: Repeat,
     },
     Describe {
         id: i64,
@@ -56,7 +66,7 @@ async fn list_tasks() -> Result<Tasks, ServerFnError> {
     require_member()?;
     crate::auth::server::run_blocking(|| {
         let today = crate::todo_storage::household_date()?;
-        crate::todo_storage::list(&crate::auth::server::connection()?, today)
+        crate::todo_storage::list(&mut crate::auth::server::connection()?, today)
     })
     .await
     .map_err(ServerFnError::new)
@@ -66,7 +76,13 @@ async fn list_tasks() -> Result<Tasks, ServerFnError> {
 async fn change_task(change: Change) -> Result<Option<String>, ServerFnError> {
     let actor = require_member()?;
     let result = crate::auth::server::run_blocking(move || {
-        crate::todo_storage::apply(&crate::auth::server::connection()?, actor, change)
+        let today = crate::todo_storage::household_date()?;
+        crate::todo_storage::apply(
+            &mut crate::auth::server::connection()?,
+            today,
+            actor,
+            change,
+        )
     })
     .await;
     Ok(result.err().map(str::to_owned))
@@ -94,6 +110,7 @@ enum Group {
     Today,
     Upcoming,
     Completed,
+    Failed,
 }
 
 impl Group {
@@ -103,12 +120,14 @@ impl Group {
             Self::Today => "Today",
             Self::Upcoming => "Upcoming",
             Self::Completed => "Completed",
+            Self::Failed => "Failed",
         }
     }
 
     fn contains(self, task: &Task, today: &str) -> bool {
         match self {
             Self::Completed => task.status == "completed",
+            Self::Failed => task.status == "failed",
             Self::Overdue => task.status == "open" && task.due.as_str() < today,
             Self::Today => task.status == "open" && task.due == today,
             Self::Upcoming => task.status == "open" && task.due.as_str() > today,
@@ -122,7 +141,11 @@ pub(super) fn TasksCard() -> Element {
     let result = data.read();
     let mut tasks = Vec::new();
     if let Some(Ok(data)) = result.as_ref() {
-        tasks.extend(data.tasks.iter().filter(|task| task.due <= data.today));
+        tasks.extend(
+            data.tasks
+                .iter()
+                .filter(|task| task.due <= data.today && task.status != "failed"),
+        );
         tasks.sort_by_key(|task| task.status == "completed");
     }
     let open = tasks.iter().filter(|task| task.status == "open").count();
@@ -172,7 +195,7 @@ pub(super) fn Todos() -> Element {
                 Some(Ok(data)) => rsx! {
                     div { class: "todos-layout",
                         div { class: "task-groups",
-                            for group in [Group::Overdue, Group::Today, Group::Upcoming, Group::Completed] {
+                            for group in [Group::Overdue, Group::Today, Group::Upcoming, Group::Completed, Group::Failed] {
                                 TaskGroup {
                                     key: "{group.title()}",
                                     group,
@@ -218,6 +241,7 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
     let mut draft = use_signal(|| None::<String>);
     let id = task.id;
     let completed = task.status == "completed";
+    let open = task.status == "open";
     let submit = Callback::new(move |change: Change| {
         if pending() {
             return;
@@ -244,11 +268,13 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
         .unwrap_or_default();
     rsx! {
         li { class: if completed { "editable-task is-done" } else { "editable-task" },
-            label { class: "task-check-target",
-                input { r#type: "checkbox", checked: completed, disabled: pending(),
+            if open || completed {
+                label { class: "task-check-target",
+                    input { r#type: "checkbox", checked: completed, disabled: pending() || (completed && !task.can_reopen),
                     aria_label: if completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
                     onchange: move |event| {
                         submit.call(if event.checked() { Change::Complete { id } } else { Change::Reopen { id } });
+                    }
                     }
                 }
             }
@@ -270,7 +296,7 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                         }
                         button { r#type: "submit", disabled: pending(), "Save description" }
                     }
-                } else if !completed {
+                } else if open {
                     button { r#type: "button", class: "undo-button", disabled: pending(),
                         onclick: move |_| draft.set(Some(task.description.clone().unwrap_or_default())),
                         "Edit description"
@@ -278,10 +304,12 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                 }
                 if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
             }
-            if completed {
+            if !open {
                 span { class: "completed-assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
-                button { class: "undo-button", r#type: "button", disabled: pending(), aria_label: "Undo completion of {task.title}",
-                    onclick: move |_| submit.call(Change::Reopen { id }), "Undo" }
+                if task.can_reopen {
+                    button { class: "undo-button", r#type: "button", disabled: pending(), aria_label: "Undo completion of {task.title}",
+                        onclick: move |_| submit.call(Change::Reopen { id }), "Undo" }
+                }
             } else {
                 label { class: "task-assignee-field",
                     span { class: "sr-only", "Assign {task.title} to" }
@@ -315,6 +343,7 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
     let mut due = use_signal(|| today);
     let mut description = use_signal(String::new);
     let mut assignee = use_signal(|| None::<i64>);
+    let mut repeat = use_signal(|| Repeat::Once);
     let mut error = use_signal(String::new);
     let mut pending = use_signal(|| false);
     let mut feedback = use_signal(String::new);
@@ -332,7 +361,7 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
                 error.set(String::new());
                 feedback.set(String::new());
                 let task_title = title();
-                match save(Change::Create { title: task_title.clone(), description: description(), due: due(), assignee: assignee() }).await {
+                match save(Change::Create { title: task_title.clone(), description: description(), due: due(), assignee: assignee(), repeat: repeat() }).await {
                     Ok(()) => {
                         feedback.set(format!("Added: {}", task_title.trim()));
                         title.set(String::new());
@@ -351,6 +380,18 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
                 textarea { id: "new-task-description", value: "{description}", disabled: pending(), oninput: move |event| description.set(event.value()) }
                 label { r#for: "new-task-date", "Due date" }
                 input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", disabled: pending(), oninput: move |event| due.set(event.value()) }
+                label { r#for: "new-task-repeat", "Repeat" }
+                select { id: "new-task-repeat", disabled: pending(), onchange: move |event| repeat.set(match event.value().as_str() {
+                    "daily" => Repeat::Daily,
+                    "weekly" => Repeat::Weekly,
+                    "monthly" => Repeat::Monthly,
+                    _ => Repeat::Once,
+                }),
+                    option { value: "once", "Once" }
+                    option { value: "daily", "Daily" }
+                    option { value: "weekly", "Weekly" }
+                    option { value: "monthly", "Monthly" }
+                }
                 label {
                     "Assigned to"
                     MemberSelect { value: selected_assignee, members, disabled: pending(), on_change: move |value| assignee.set(value) }

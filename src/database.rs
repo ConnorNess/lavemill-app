@@ -10,6 +10,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("migrations/001_accounts.sql")),
     (2, include_str!("migrations/002_todos.sql")),
+    (3, include_str!("migrations/003_todo_recurrence.sql")),
 ];
 
 pub fn initialize(path: &Path) -> Result<()> {
