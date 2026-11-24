@@ -111,6 +111,10 @@ set via `LAVEMILL_PORT`). For an HTTPS deployment, set `LAVEMILL_ORIGIN` to the
 public HTTPS origin, for example `https://lavemill.example.com`. Point the tunnel
 at the release server and leave the development viewer stopped.
 
+Open **Users** while signed in as the admin to add users, edit their details,
+or reset a password. Share the password you set with the account holder.
+Resetting a password signs that account out on every device.
+
 ## Docker commands
 
 ```sh
