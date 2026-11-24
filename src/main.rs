@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 #[cfg(feature = "server")]
+mod accounts;
+#[cfg(feature = "server")]
 mod database;
 
 mod todos;
@@ -30,6 +32,14 @@ fn main() {
                 path.display()
             );
             std::process::exit(1);
+        }
+        let args: Vec<_> = std::env::args().skip(1).collect();
+        if args.first().is_some_and(|arg| arg == "admin") {
+            if let Err(error) = accounts::admin_command(&args[1..]) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+            return;
         }
     }
     dioxus::launch(App);

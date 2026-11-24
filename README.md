@@ -26,10 +26,10 @@ docker compose stop sqlite-web
 ```
 
 Stopping the viewer leaves the app running. Use `docker compose up` to start
-only the app. The app pages still use mock data, so the viewer shows only the
-empty `schema_migrations` table. The shared volume is writable so SQLite can create
-WAL coordination files, but the viewer's database connection rejects edits. No
-authentication is configured; keep this development tool bound to localhost.
+only the app. The viewer can read account data, including password hashes.
+The shared volume is writable so SQLite can create WAL coordination files, but
+the viewer's database connection rejects edits. Keep the unauthenticated viewer
+bound to localhost and use it only with development data.
 
 ### Storage and migrations
 
@@ -37,7 +37,7 @@ The server initializes SQLite before serving requests. Compose sets
 `LAVEMILL_DATABASE_PATH=/data/lavemill.sqlite3` on the `household-data` volume;
 outside Compose the default is `data/lavemill.sqlite3`. Missing parent directories
 are created. Invalid paths or failed migrations stop startup with a path and error.
-The current pages still use mock data and reset on refresh.
+To-dos and shopping still use mock data and reset on refresh.
 
 Connections enable foreign keys, WAL mode and a five-second busy timeout.
 Only the server builds SQLite. The development image includes the `sqlite3` CLI:
@@ -47,7 +47,7 @@ docker compose exec app sqlite3 /data/lavemill.sqlite3 .schema
 docker compose exec app cargo test --locked --no-default-features --features server
 ```
 
-The initial schema contains only `schema_migrations`. To add a feature schema,
+The schema includes `users` and `sessions`. To add a feature schema,
 add a numbered SQL file under `src/migrations/` and append its positive version
 and `include_str!` SQL to `MIGRATIONS` in `src/database.rs`. Keep versions strictly
 increasing and never edit an applied migration. SQL must not contain transaction
@@ -89,6 +89,20 @@ takes a while. Source edits are picked up while the app is running.
 
 ```sh
 docker compose run --rm --no-deps app cargo generate-lockfile
+```
+
+## Admin account
+
+Create the sole admin locally. Enter the password twice at the hidden prompts:
+
+```sh
+docker compose run --rm --no-deps app cargo run --locked --no-default-features --features server -- admin init connor Connor Example
+```
+
+Recover the admin account from the same host and database:
+
+```sh
+docker compose run --rm --no-deps app cargo run --locked --no-default-features --features server -- admin reset-password
 ```
 
 ## Docker commands
