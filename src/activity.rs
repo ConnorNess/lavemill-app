@@ -11,6 +11,7 @@ struct ActivitySnapshot {
 struct ActivityRow {
     name: String,
     status: String,
+    steam_game: Option<String>,
 }
 
 #[get("/api/activity")]
@@ -23,20 +24,42 @@ async fn user_activity() -> Result<ActivitySnapshot, ServerFnError> {
     let tautulli: crate::tautulli::Tautulli = context
         .extension()
         .ok_or_else(|| ServerFnError::new("Activity unavailable."))?;
+    let steam: crate::steam::Steam = context
+        .extension()
+        .ok_or_else(|| ServerFnError::new("Activity unavailable."))?;
     let members = crate::auth::server::run_blocking(load_members)
         .await
         .map_err(ServerFnError::new)?;
     let configured = tautulli.is_configured();
-    let activity = if configured && members.iter().any(|member| member.profile_id.is_some()) {
-        tautulli.activity().await.ok()
-    } else {
-        None
-    };
+    let steam_ids = members
+        .iter()
+        .filter_map(|member| member.steam_id)
+        .collect();
+    let (activity, games) = tokio::join!(
+        async {
+            if configured && members.iter().any(|member| member.profile_id.is_some()) {
+                tautulli.activity().await.ok()
+            } else {
+                None
+            }
+        },
+        steam.activity(steam_ids),
+    );
     let sessions = activity
         .as_ref()
         .map(|activity| activity.sessions.as_slice());
 
-    let rows = members
+    let rows = activity_rows(&members, sessions, &games);
+    Ok(ActivitySnapshot { configured, rows })
+}
+
+#[cfg(feature = "server")]
+fn activity_rows(
+    members: &[Member],
+    sessions: Option<&[crate::tautulli::Playback]>,
+    games: &std::collections::HashMap<i64, String>,
+) -> Vec<ActivityRow> {
+    members
         .iter()
         .map(|member| ActivityRow {
             name: if members
@@ -50,9 +73,9 @@ async fn user_activity() -> Result<ActivitySnapshot, ServerFnError> {
                 member.first.clone()
             },
             status: status(member.profile_id, sessions),
+            steam_game: member.steam_id.and_then(|id| games.get(&id).cloned()),
         })
-        .collect();
-    Ok(ActivitySnapshot { configured, rows })
+        .collect()
 }
 
 #[cfg(feature = "server")]
@@ -60,6 +83,7 @@ struct Member {
     first: String,
     last: String,
     profile_id: Option<i64>,
+    steam_id: Option<i64>,
 }
 
 #[cfg(feature = "server")]
@@ -67,9 +91,12 @@ fn load_members() -> Result<Vec<Member>, &'static str> {
     let db = crate::auth::server::connection()?;
     let mut query = db
         .prepare(
-            "SELECT first_name, last_name, external_profile_id
-             FROM users LEFT JOIN activity_profile_links
-               ON activity_profile_links.user_id = users.id AND provider = 'plex'
+            "SELECT first_name, last_name, plex.external_profile_id, steam.external_profile_id
+             FROM users
+             LEFT JOIN activity_profile_links AS plex
+               ON plex.user_id = users.id AND plex.provider = 'plex'
+             LEFT JOIN activity_profile_links AS steam
+               ON steam.user_id = users.id AND steam.provider = 'steam'
              ORDER BY first_name COLLATE NOCASE, last_name COLLATE NOCASE, users.id",
         )
         .map_err(crate::accounts::database_error)?;
@@ -79,6 +106,7 @@ fn load_members() -> Result<Vec<Member>, &'static str> {
                 first: row.get(0)?,
                 last: row.get(1)?,
                 profile_id: row.get(2)?,
+                steam_id: row.get(3)?,
             })
         })
         .map_err(crate::accounts::database_error)?;
@@ -149,7 +177,12 @@ pub(super) fn ActivityCard() -> Element {
                             for (index, row) in snapshot.rows.iter().enumerate() {
                                 li { key: "{index}",
                                     strong { "{row.name}" }
-                                    span { "{row.status}" }
+                                    div {
+                                        span { "{row.status}" }
+                                        if let Some(game) = &row.steam_game {
+                                            span { "Playing {game}" }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -164,8 +197,37 @@ pub(super) fn ActivityCard() -> Element {
 
 #[cfg(all(test, feature = "server"))]
 mod tests {
-    use super::status;
+    use super::{activity_rows, status, Member};
     use crate::tautulli::{Playback, PlaybackState::*};
+    use std::collections::HashMap;
+
+    #[test]
+    fn pairs_steam_and_plex_activity_and_keeps_either_when_the_other_is_unavailable() {
+        let steam_id = 76561198000000001;
+        let members = [Member {
+            first: "Household".into(),
+            last: "Member".into(),
+            profile_id: Some(101),
+            steam_id: Some(steam_id),
+        }];
+        let sessions = [Playback {
+            user_id: 101,
+            session_id: "1".into(),
+            full_title: "The Odyssey".into(),
+            state: Playing,
+        }];
+        let games = HashMap::from([(steam_id, "Hades II".into())]);
+        let both = activity_rows(&members, Some(&sessions), &games);
+        assert_eq!(both[0].status, "Watching The Odyssey");
+        assert_eq!(both[0].steam_game.as_deref(), Some("Hades II"));
+
+        let plex_only = activity_rows(&members, Some(&sessions), &HashMap::new());
+        assert_eq!(plex_only[0].status, "Watching The Odyssey");
+        assert_eq!(plex_only[0].steam_game, None);
+
+        let steam_only = activity_rows(&members, None, &games);
+        assert_eq!(steam_only[0].steam_game.as_deref(), Some("Hades II"));
+    }
 
     #[test]
     fn selects_the_current_session_for_each_profile() {

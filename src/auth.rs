@@ -80,6 +80,7 @@ pub mod server {
         verification_slots: Arc<Semaphore>,
         calendars: crate::calendar_server::CalendarClients,
         tautulli: crate::tautulli::Tautulli,
+        steam: crate::steam::Steam,
     }
 
     #[derive(Clone, Copy)]
@@ -135,6 +136,7 @@ pub mod server {
             Ok(Self {
                 calendars: crate::calendar_server::CalendarClients::configured(&origin)?,
                 tautulli: crate::tautulli::Tautulli::configured(),
+                steam: crate::steam::Steam::configured(),
                 origin,
                 dev_port: url.port_or_known_default().filter(|_| !secure),
                 secure,
@@ -306,6 +308,9 @@ pub mod server {
                     }
                     request.extensions_mut().insert(state.calendars.clone());
                     request.extensions_mut().insert(state.tautulli.clone());
+                    if activity_api {
+                        request.extensions_mut().insert(state.steam.clone());
+                    }
                 }
                 None if page => return private(Redirect::to("/login").into_response()),
                 None if users_api

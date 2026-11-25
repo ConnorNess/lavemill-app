@@ -56,6 +56,19 @@ Reset the admin password from the host.
 docker compose run --rm --no-deps app cargo run --locked --no-default-features --features server -- admin reset-password
 ```
 
+### Steam playing status
+
+Create a [Steam Web API key](https://steamcommunity.com/dev/apikey), set
+`LAVEMILL_STEAM_API_KEY` in the server environment or local Compose `.env`,
+and recreate the app container. Leave the key blank to disable Steam activity.
+
+When a household member requests sharing, enter their SteamID64 in **Users**
+and select **Save Steam profile**. The member needs to set their Steam
+**Game details** privacy to **Public**. Games marked private can hide playing
+status. Lavemill stores the linked ID and caches current game titles in memory
+for 30 seconds. Signed-in household members can see **Playing [game]** on
+**Home** when Steam reports a title. To stop sharing, clear the ID and save.
+
 ## SQLite
 
 Compose uses `/data/lavemill.sqlite3` on the `household-data` volume.
