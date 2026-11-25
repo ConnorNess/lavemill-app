@@ -23,7 +23,9 @@ mod tautulli;
 mod todo_storage;
 mod todos;
 use todos::{TasksCard, Todos};
+mod recipes;
 mod shopping;
+use recipes::{RecipeDetail, Recipes};
 mod shopping_data;
 #[cfg(feature = "server")]
 mod shopping_storage;
@@ -40,6 +42,10 @@ enum Route {
     Todos {},
     #[route("/shopping")]
     Shopping {},
+    #[route("/recipes")]
+    Recipes {},
+    #[route("/recipes/:id")]
+    RecipeDetail { id: i64 },
     #[route("/calendar?:view&:date&:notice")]
     Calendar {
         view: Option<String>,
@@ -121,6 +127,7 @@ fn HouseholdLayout() -> Element {
                     Link { to: Route::Home {}, class: if route == (Route::Home {}) { "nav-link active" } else { "nav-link" }, "Home" }
                     Link { to: Route::Todos {}, class: if route == (Route::Todos {}) { "nav-link active" } else { "nav-link" }, "To-dos" }
                     Link { to: Route::Shopping {}, class: if route == (Route::Shopping {}) { "nav-link active" } else { "nav-link" }, "Shopping" }
+                    Link { to: Route::Recipes {}, class: if matches!(route, Route::Recipes {} | Route::RecipeDetail { .. }) { "nav-link active" } else { "nav-link" }, "Recipes" }
                     Link { to: Route::Calendar { view: None, date: None, notice: None }, class: if matches!(route, Route::Calendar { .. }) { "nav-link active" } else { "nav-link" }, "Calendar" }
                     if is_admin {
                         Link { to: Route::Users {}, class: if route == (Route::Users {}) { "nav-link active" } else { "nav-link" }, "Users" }

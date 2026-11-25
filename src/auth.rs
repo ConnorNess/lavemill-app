@@ -247,10 +247,12 @@ pub mod server {
 
     async fn guard(State(state): State<AuthState>, mut request: Request, next: Next) -> Response {
         let path = request.uri().path();
+        let recipe_page = path == "/recipes" || path.starts_with("/recipes/");
+        let recipes_api = path == "/api/recipes" || path.starts_with("/api/recipes/");
         let page = matches!(
             path.trim_end_matches('/'),
             "" | "/todos" | "/shopping" | "/users" | "/calendar"
-        );
+        ) || recipe_page;
         let users_page = path.trim_end_matches('/') == "/users";
         let users_api = path.starts_with("/api/users");
         let session_api = path == "/api/session";
@@ -265,6 +267,7 @@ pub mod server {
             || users_api
             || todos_api
             || shopping_api
+            || recipes_api
             || activity_api
             || calendar_request
             || session_api
@@ -285,6 +288,7 @@ pub mod server {
             || users_api
             || todos_api
             || shopping_api
+            || recipes_api
             || activity_api
             || session_api
             || calendar_request
@@ -316,6 +320,7 @@ pub mod server {
                 None if users_api
                     || todos_api
                     || shopping_api
+                    || recipes_api
                     || activity_api
                     || calendar_request =>
                 {

@@ -166,6 +166,16 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .form-feedback:empty { display: none; }
 
 .shopping-page { max-width: 920px; }
+.recipes-page { max-width: 1000px; overflow-wrap: anywhere; }
+.recipe-cards { list-style: none; padding: 0; display: grid; gap: 12px; }
+.recipe-card { display: block; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-weight: 650; }
+.recipe-method { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 24px; }
+.recipe-method > section { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 18px; }
+.recipe-method li { margin-block: 8px; }
+.recipe-text { white-space: pre-wrap; }
+@media (max-width: 680px) {
+    .recipe-method { grid-template-columns: minmax(0, 1fr); }
+}
 .shopping-heading { margin-bottom: 24px; }
 .shopping-heading h1 { margin: 0; font-size: 1.75rem; font-weight: 650; letter-spacing: -0.04em; }
 .shopping-groups { display: grid; gap: 22px; }
