@@ -438,7 +438,7 @@ impl ViewPeriod {
                 last + Days::new(1),
                 anchor - Days::new(7),
                 anchor + Days::new(7),
-                format!("{} ? {}", first.format("%-d %b"), last.format("%-d %b %Y")),
+                format!("{} -> {}", first.format("%-d %b"), last.format("%-d %b %Y")),
             )
         };
         let days = first
@@ -531,7 +531,7 @@ fn fill_view_days(days: &mut [CalendarDay], range: DateRange, events: Vec<Calend
                 let until = if ends_today { minute(end) } else { 1440 };
                 let when = match (starts_today, ends_today) {
                     (true, true) if start == end => start.format("%H:%M").to_string(),
-                    (true, true) => format!("{}?{}", start.format("%H:%M"), end.format("%H:%M")),
+                    (true, true) => format!("{}–{}", start.format("%H:%M"), end.format("%H:%M")),
                     (true, false) => format!("{} onward", start.format("%H:%M")),
                     (false, true) => format!("Until {}", end.format("%H:%M")),
                     (false, false) => "Continues all day".into(),
@@ -704,6 +704,7 @@ mod tests {
             date("2026-03-29"),
             false,
         );
+        assert_eq!(period.data.label, "23 Mar -> 29 Mar 2026");
         let mut private = event("2026-03-28T23:30:00Z", "2026-03-29T02:00:00Z", false);
         private.visibility = Some("private".into());
         let all_day = event("2026-03-28", "2026-03-30", true);

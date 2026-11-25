@@ -163,7 +163,12 @@ pub fn CalendarCard() -> Element {
     let agenda = agenda.read();
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "calendar-title",
-            CardHeading { icon: "calendar", title: "Shared Calendar", id: "calendar-title", count: "This week" }
+            CardHeading {
+                icon: "calendar",
+                title: "Shared Calendar",
+                id: "calendar-title",
+                count: "This week",
+            }
             div { class: "card-body agenda",
                 match agenda.as_ref() {
                     Some(Ok(Some(agenda))) => rsx! {
@@ -172,15 +177,25 @@ pub fn CalendarCard() -> Element {
                         }
                         if !agenda.has_shared_calendars {
                             p { "Your household hasn’t shared a calendar yet." }
-                            Link { to: Route::Calendar { view: None, date: None, notice: Some("manage".into()) }, "Connect a calendar" }
+                            Link {
+                                to: Route::Calendar {
+                                    view: None,
+                                    date: None,
+                                    notice: Some("manage".into()),
+                                },
+                                "Connect a calendar"
+                            }
                         } else if agenda.days.is_empty() && !agenda.incomplete {
                             p { "No shared events this week." }
                         }
                         for day in &agenda.days {
                             section { key: "{day.date}", class: "agenda-group",
-                                h3 { class: "agenda-date", "{day.label}", span { "{day.date}" } }
+                                h3 { class: "agenda-date",
+                                    "{day.label}"
+                                    span { "{day.date}" }
+                                }
                                 ul { class: "item-list",
-                                    for (index, entry) in day.entries.iter().enumerate() {
+                                    for (index , entry) in day.entries.iter().enumerate() {
                                         li { key: "{index}", class: "agenda-row",
                                             span { class: "agenda-marker", aria_hidden: "true" }
                                             div { class: "row-copy",
@@ -193,9 +208,15 @@ pub fn CalendarCard() -> Element {
                             }
                         }
                     },
-                    Some(Ok(None)) => rsx! { p { "Calendar linking is unavailable on this server." } },
-                    Some(Err(_)) => rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } },
-                    None => rsx! { p { "Loading the shared calendar…" } },
+                    Some(Ok(None)) => rsx! {
+                        p { "Calendar linking is unavailable on this server." }
+                    },
+                    Some(Err(_)) => rsx! {
+                        p { role: "alert", "Could not load the shared calendar. Reload to try again." }
+                    },
+                    None => rsx! {
+                        p { "Loading the shared calendar…" }
+                    },
                 }
             }
         }
@@ -231,7 +252,7 @@ pub fn Calendar(view: Option<String>, date: Option<String>, notice: Option<Strin
     };
     rsx! {
         main { id: "main", class: "dashboard calendar-page",
-            document::Title { "Lavemill ? Calendar" }
+            document::Title { "Lavemill - Calendar" }
             div { class: "calendar-heading",
                 h1 { "Calendar" }
                 button {
@@ -243,7 +264,10 @@ pub fn Calendar(view: Option<String>, date: Option<String>, notice: Option<Strin
                     "Manage calendars"
                 }
             }
-            section { id: "calendar-connections", hidden: !manage_open(), aria_label: "Calendar connections",
+            section {
+                id: "calendar-connections",
+                hidden: !manage_open(),
+                aria_label: "Calendar connections",
                 if manage_open() {
                     if let Some(message) = message {
                         p { role: "status", "{message}" }
@@ -274,10 +298,14 @@ fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
     let mut selected_day = use_signal(|| None::<String>);
     let data = data.read();
     let Some(result) = data.as_ref() else {
-        return rsx! { p { "Loading the shared calendar?" } };
+        return rsx! {
+            p { "Loading the shared calendar…" }
+        };
     };
     let Ok(data) = result else {
-        return rsx! { p { role: "alert", "Could not load the shared calendar. Reload to try again." } };
+        return rsx! {
+            p { role: "alert", "Could not load the shared calendar. Reload to try again." }
+        };
     };
     let selected = selected_day().unwrap_or_else(|| data.date.clone());
     let week_href = period_route(Some("week".into()), selected.clone()).to_string();
@@ -300,9 +328,15 @@ fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
                     }
                 }
                 nav { class: "calendar-nav", aria_label: "Calendar dates",
-                    a { href: period_route(Some(view.into()), data.previous.clone()).to_string(), "Previous" }
-                    a { href: period_route(Some(view.into()), data.today.clone()).to_string(), "Today" }
-                    a { href: period_route(Some(view.into()), data.next.clone()).to_string(), "Next" }
+                    a { href: period_route(Some(view.into()), data.previous.clone()).to_string(),
+                        "Previous"
+                    }
+                    a { href: period_route(Some(view.into()), data.today.clone()).to_string(),
+                        "Today"
+                    }
+                    a { href: period_route(Some(view.into()), data.next.clone()).to_string(),
+                        "Next"
+                    }
                 }
             }
         }
@@ -312,11 +346,13 @@ fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
         if !data.configured {
             p { class: "row-note", "Calendar linking is unavailable on this server." }
         } else if !data.has_shared_calendars {
-            p { class: "row-note", "Your household hasn?t shared a calendar yet." }
+            p { class: "row-note", "Your household hasn’t shared a calendar yet." }
         }
         if data.month {
             MonthGrid {
-                days: data.days.clone(), today: data.today.clone(), selected,
+                days: data.days.clone(),
+                today: data.today.clone(),
+                selected,
                 on_select: move |day| selected_day.set(Some(day)),
             }
         } else {
@@ -334,9 +370,16 @@ fn MonthGrid(
 ) -> Element {
     let selected_day = days.iter().find(|day| day.date == selected);
     rsx! {
-        div { class: "calendar-month", role: "group", aria_label: "Month calendar",
+        div {
+            class: "calendar-month",
+            role: "group",
+            aria_label: "Month calendar",
             for day in days.iter().take(7) {
-                div { key: "heading-{day.weekday}", class: "calendar-month-weekday", "{day.weekday}" }
+                div {
+                    key: "heading-{day.weekday}",
+                    class: "calendar-month-weekday",
+                    "{day.weekday}"
+                }
             }
             for day in &days {
                 button {
@@ -348,9 +391,12 @@ fn MonthGrid(
                     aria_pressed: day.date == selected,
                     aria_controls: "calendar-day-events",
                     aria_label: "{day.label}, {day.events.len()} events",
-                    onclick: { let date = day.date.clone(); move |_| on_select.call(date.clone()) },
+                    onclick: {
+                        let date = day.date.clone();
+                        move |_| on_select.call(date.clone())
+                    },
                     span { class: "calendar-month-number", "{day.number}" }
-                    for (index, event) in day.events.iter().take(3).enumerate() {
+                    for (index , event) in day.events.iter().take(3).enumerate() {
                         span { key: "{index}", class: "calendar-month-event", "{event.title}" }
                     }
                     if day.events.len() > 3 {
@@ -360,13 +406,16 @@ fn MonthGrid(
             }
         }
         if let Some(day) = selected_day {
-            section { id: "calendar-day-events", class: "calendar-day-details", aria_labelledby: "calendar-day-title",
+            section {
+                id: "calendar-day-events",
+                class: "calendar-day-details",
+                aria_labelledby: "calendar-day-title",
                 h3 { id: "calendar-day-title", "{day.label}" }
                 if day.events.is_empty() {
                     p { class: "row-note", "No shared events on this day." }
                 } else {
                     ul { class: "item-list",
-                        for (index, event) in day.events.iter().enumerate() {
+                        for (index , event) in day.events.iter().enumerate() {
                             li { key: "{index}", class: "calendar-day-event",
                                 span { "{event.title}" }
                                 span { class: "row-note", "{event.when}" }
@@ -382,12 +431,19 @@ fn MonthGrid(
 #[component]
 fn WeekGrid(days: Vec<CalendarDay>, today: String) -> Element {
     rsx! {
-        div { class: "calendar-week-scroll", role: "region", aria_label: "Hourly week calendar", tabindex: "0",
+        div {
+            class: "calendar-week-scroll",
+            role: "region",
+            aria_label: "Hourly week calendar",
+            tabindex: "0",
             div { class: "calendar-week",
                 div { class: "calendar-week-row calendar-week-head",
                     span {}
                     for day in &days {
-                        h3 { key: "{day.date}", aria_label: "{day.label}", class: if day.date == today { "calendar-today" },
+                        h3 {
+                            key: "{day.date}",
+                            aria_label: "{day.label}",
+                            class: if day.date == today { "calendar-today" },
                             "{day.weekday} {day.number}"
                         }
                     }
@@ -395,8 +451,11 @@ fn WeekGrid(days: Vec<CalendarDay>, today: String) -> Element {
                 div { class: "calendar-week-row calendar-all-day",
                     span { class: "calendar-all-day-label", "All day" }
                     for day in &days {
-                        ul { key: "{day.date}", class: "item-list", aria_label: "All-day events on {day.label}",
-                            for (index, event) in day.events.iter().filter(|event| event.minutes.is_none()).enumerate() {
+                        ul {
+                            key: "{day.date}",
+                            class: "item-list",
+                            aria_label: "All-day events on {day.label}",
+                            for (index , event) in day.events.iter().filter(|event| event.minutes.is_none()).enumerate() {
                                 li { key: "{index}", "{event.title}" }
                             }
                         }
@@ -409,10 +468,16 @@ fn WeekGrid(days: Vec<CalendarDay>, today: String) -> Element {
                         }
                     }
                     for day in &days {
-                        section { key: "{day.date}", class: "calendar-hour-column", aria_label: "Timed events on {day.label}",
-                            for (index, block) in scheduled_blocks(&day.events).into_iter().enumerate() {
-                                div { key: "{index}", class: "calendar-timed-event", style: block.style(),
-                                    title: "{block.event.title} ? {block.event.when}",
+                        section {
+                            key: "{day.date}",
+                            class: "calendar-hour-column",
+                            aria_label: "Timed events on {day.label}",
+                            for (index , block) in scheduled_blocks(&day.events).into_iter().enumerate() {
+                                div {
+                                    key: "{index}",
+                                    class: "calendar-timed-event",
+                                    style: block.style(),
+                                    title: "{block.event.title} — {block.event.when}",
                                     span { class: "calendar-timed-title", "{block.event.title}" }
                                     span { class: "calendar-timed-time", "{block.event.when}" }
                                 }
@@ -490,6 +555,14 @@ mod tests {
 
     #[test]
     fn calendar_routes_round_trip_view_date_and_oauth_notice() {
+        assert_eq!(
+            "/calendar".parse::<Route>().unwrap(),
+            Route::Calendar {
+                view: None,
+                date: None,
+                notice: None,
+            }
+        );
         let route = period_route(Some("month".into()), "2026-12-31".into());
         assert_eq!(route.to_string().parse::<Route>().unwrap(), route);
         assert_eq!(
@@ -537,28 +610,37 @@ fn CalendarConnection(provider: Provider) -> Element {
     let name = provider.label();
     let key = provider.key();
     rsx! {
-            section { class: "add-task-panel calendar-settings",
-                h2 { "{name}" }
-                match status.as_ref() {
-                    Some(Ok(ConnectionStatus::Connected { selected, shared, choices })) => rsx! {
-                        CalendarSharing { provider, selected: selected.clone(), shared: *shared, choices: choices.clone() }
+        section { class: "add-task-panel calendar-settings",
+            h2 { "{name}" }
+            match status.as_ref() {
+                Some(Ok(ConnectionStatus::Connected { selected, shared, choices })) => {
+                    rsx! {
+                        CalendarSharing {
+                            provider,
+                            selected: selected.clone(),
+                            shared: *shared,
+                            choices: choices.clone(),
+                        }
                         ConnectButton { provider, reconnect: true }
                         form { action: "/calendar/{key}/disconnect", method: "post",
                             button { class: "undo-button", r#type: "submit", "Disconnect {name}" }
                         }
-                    },
-                    Some(Ok(ConnectionStatus::Disconnected)) => rsx! {
-                        ConnectButton { provider, reconnect: false }
-                    },
-                    Some(Ok(ConnectionStatus::Unavailable)) => rsx! {
-                        p { "{name} linking is unavailable on this server." }
-                    },
-                    Some(Err(_)) => rsx! {
-                        p { role: "alert", "Could not check your calendar connection. Reload to try again." }
-                    },
-                    None => rsx! { p { "Checking your calendar connection…" } },
+                    }
                 }
+                Some(Ok(ConnectionStatus::Disconnected)) => rsx! {
+                    ConnectButton { provider, reconnect: false }
+                },
+                Some(Ok(ConnectionStatus::Unavailable)) => rsx! {
+                    p { "{name} linking is unavailable on this server." }
+                },
+                Some(Err(_)) => rsx! {
+                    p { role: "alert", "Could not check your calendar connection. Reload to try again." }
+                },
+                None => rsx! {
+                    p { "Checking your calendar connection…" }
+                },
             }
+        }
     }
 }
 
@@ -606,10 +688,23 @@ fn CalendarSharing(
             } else {
                 form { action: "/calendar/{key}/select", method: "post",
                     label { r#for: "selected-calendar-{key}", "Calendar" }
-                    select { id: "selected-calendar-{key}", name: "calendar_id", required: true,
-                        option { value: "", disabled: true, selected: !selected_is_available, "Choose a calendar" }
+                    select {
+                        id: "selected-calendar-{key}",
+                        name: "calendar_id",
+                        required: true,
+                        option {
+                            value: "",
+                            disabled: true,
+                            selected: !selected_is_available,
+                            "Choose a calendar"
+                        }
                         for calendar in calendars {
-                            option { key: "{calendar.id}", value: "{calendar.id}", selected: Some(&calendar.id) == selected.as_ref(), "{calendar.name}" }
+                            option {
+                                key: "{calendar.id}",
+                                value: "{calendar.id}",
+                                selected: Some(&calendar.id) == selected.as_ref(),
+                                "{calendar.name}"
+                            }
                         }
                     }
                     button { class: "primary-button", r#type: "submit", "Save calendar selection" }
@@ -621,10 +716,24 @@ fn CalendarSharing(
                 input { r#type: "hidden", name: "calendar_id", value: "{id}" }
                 if shared {
                     p { "This calendar is shared with your household." }
-                    button { class: "undo-button", r#type: "submit", name: "shared", value: "false", "Stop sharing" }
+                    button {
+                        class: "undo-button",
+                        r#type: "submit",
+                        name: "shared",
+                        value: "false",
+                        "Stop sharing"
+                    }
                 } else {
-                    p { "Share this calendar to show event titles and times to signed-in household members. Events marked private appear as Busy." }
-                    button { class: "primary-button", r#type: "submit", name: "shared", value: "true", "Share with household" }
+                    p {
+                        "Share this calendar to show event titles and times to signed-in household members. Events marked private appear as Busy."
+                    }
+                    button {
+                        class: "primary-button",
+                        r#type: "submit",
+                        name: "shared",
+                        value: "true",
+                        "Share with household"
+                    }
                 }
             }
         }
