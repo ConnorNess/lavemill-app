@@ -40,6 +40,16 @@ Quote names with spaces. Enter the password twice at the hidden prompts.
 Use **Users** to add accounts, edit details, or reset passwords. A password
 reset signs the account out on all devices.
 
+### Plex profiles
+
+Enable the API in Tautulli under **Settings → Web Interface**. Set
+`LAVEMILL_TAUTULLI_URL=http://192.168.178.38:8181` and
+`LAVEMILL_TAUTULLI_API_KEY` in your local `.env`, then recreate the app
+container. The URL must be reachable from that container. Use the base URL
+without `/home`. Header authentication requires Tautulli v2.18.0 or later.
+In **Users**, choose each person's Plex Home profile and save it. If a profile
+is missing, refresh the user list in Tautulli and reload the Users page.
+
 Reset the admin password from the host.
 
 ```sh
