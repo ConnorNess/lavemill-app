@@ -3,6 +3,12 @@ use dioxus::prelude::*;
 mod accounts;
 mod auth;
 use auth::Login;
+mod calendar;
+use calendar::{Calendar, CalendarCard};
+#[cfg(feature = "server")]
+mod calendar_server;
+#[cfg(feature = "server")]
+mod household_time;
 mod users;
 use users::Users;
 #[cfg(feature = "server")]
@@ -29,6 +35,12 @@ enum Route {
     Todos {},
     #[route("/shopping")]
     Shopping {},
+    #[route("/calendar?:view&:date&:notice")]
+    Calendar {
+        view: Option<String>,
+        date: Option<String>,
+        notice: Option<String>,
+    },
     #[route("/users")]
     Users {},
 }
@@ -104,6 +116,7 @@ fn HouseholdLayout() -> Element {
                     Link { to: Route::Home {}, class: if route == (Route::Home {}) { "nav-link active" } else { "nav-link" }, "Home" }
                     Link { to: Route::Todos {}, class: if route == (Route::Todos {}) { "nav-link active" } else { "nav-link" }, "To-dos" }
                     Link { to: Route::Shopping {}, class: if route == (Route::Shopping {}) { "nav-link active" } else { "nav-link" }, "Shopping" }
+                    Link { to: Route::Calendar { view: None, date: None, notice: None }, class: if matches!(route, Route::Calendar { .. }) { "nav-link active" } else { "nav-link" }, "Calendar" }
                     if is_admin {
                         Link { to: Route::Users {}, class: if route == (Route::Users {}) { "nav-link active" } else { "nav-link" }, "Users" }
                     }
@@ -163,41 +176,6 @@ fn StatusMark(done: bool) -> Element {
             if done { Icon { kind: "check" } }
         }
         span { class: "sr-only", if done { "Completed: " } else { "Open: " } }
-    }
-}
-
-#[component]
-fn CalendarCard() -> Element {
-    rsx! {
-        section { class: "dashboard-card", aria_labelledby: "calendar-title",
-            CardHeading { icon: "calendar", title: "Shared Calendar", id: "calendar-title", count: "This week" }
-            div { class: "card-body agenda",
-                section { class: "agenda-group", aria_labelledby: "agenda-today",
-                    h3 { id: "agenda-today", class: "agenda-date", "Today", span { "23 Nov" } }
-                    ul { class: "item-list",
-                        AgendaRow { title: "Family dinner" }
-                    }
-                }
-                section { class: "agenda-group", aria_labelledby: "agenda-saturday",
-                    h3 { id: "agenda-saturday", class: "agenda-date", "Saturday", span { "28 Nov" } }
-                    ul { class: "item-list",
-                        AgendaRow { title: "Gramps visiting" }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn AgendaRow(title: &'static str) -> Element {
-    rsx! {
-        li { class: "agenda-row",
-            span { class: "agenda-marker", aria_hidden: "true" }
-            div { class: "row-copy",
-                span { class: "row-title", "{title}" }
-            }
-        }
     }
 }
 

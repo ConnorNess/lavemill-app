@@ -86,3 +86,55 @@ docker compose run --rm --no-deps app cargo generate-lockfile
 
 Set `LAVEMILL_ORIGIN` to the public origin, e.g. `https://lavemill.example.com`.
 Point cloudflared at the release server. Keep the SQLite viewer stopped.
+
+## Google Calendar
+
+Enable the Google Calendar API in a Google Cloud project and create a Web
+application OAuth client. Register the exact callback at the app origin, for
+example `http://127.0.0.1:8080/calendar/google/callback` locally or
+`https://lavemill.example.com/calendar/google/callback` in production. Open
+Lavemill at that same origin when connecting a calendar.
+
+Set `LAVEMILL_GOOGLE_CLIENT_ID`, `LAVEMILL_GOOGLE_CLIENT_SECRET`, and
+`LAVEMILL_GOOGLE_TOKEN_KEY` in the server environment or the ignored local
+`.env` file for Compose. Generate the token key once with Python:
+
+```sh
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Keep the key across deployments and backups. Changing it means members must
+reconnect. With all three settings unset, calendar linking is disabled.
+For an external OAuth app in Testing, add each Google account as a test user.
+Google refresh tokens for Calendar expire after seven days in Testing mode.
+
+Open **Calendar ? Manage calendars** to connect Google and save a calendar selection.
+Select **Share with household** to show its current week on Home. Events marked
+private appear as Busy. Use **Stop sharing** to remove the calendar from Home
+while keeping it connected.
+
+## Outlook Calendar
+
+Register a Microsoft Entra app for personal Microsoft accounts with a **Web**
+redirect URI. For local testing on a separate Compose project, set
+`LAVEMILL_PORT=8081` and `LAVEMILL_ORIGIN=http://localhost:8081`, and register
+`http://localhost:8081/calendar/outlook/callback`. Open Lavemill using that
+origin. If testing both providers, also register
+`http://localhost:8081/calendar/google/callback` with Google. For production,
+register the same Outlook callback path on the configured HTTPS origin.
+
+Grant the delegated Microsoft Graph permission `Calendars.ReadBasic`. Lavemill
+requests `offline_access` when a member connects. Set
+`LAVEMILL_OUTLOOK_CLIENT_ID`, `LAVEMILL_OUTLOOK_CLIENT_SECRET` (the secret value),
+and `LAVEMILL_OUTLOOK_TOKEN_KEY` in the server environment or ignored Compose
+`.env` file. Generate a separate token key using the command above and retain
+it across deployments and backups.
+
+Under **Calendar ? Manage calendars**, connect Outlook, save a calendar selection, and choose
+**Share with household**. Home combines the current week from shared Outlook and
+Google calendars. Outlook events marked personal, private, or confidential
+appear as Busy.
+
+The **Calendar** page shows shared events in a weekly time grid or a month
+grid. Use **Week** and **Month** to change views, and select a day in the
+month grid to see all of its events. Home shows the current week's agenda.

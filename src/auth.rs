@@ -78,7 +78,11 @@ pub mod server {
         dummy_hash: Arc<str>,
         attempts: Arc<Mutex<Attempts>>,
         verification_slots: Arc<Semaphore>,
+        calendars: crate::calendar_server::CalendarClients,
     }
+
+    #[derive(Clone, Copy)]
+    pub struct SessionHash(pub [u8; 32]);
 
     struct Attempts {
         since: Instant,
@@ -126,8 +130,10 @@ pub mod server {
                 );
             }
             let dummy_hash = accounts::hash_password("unused dummy credential")?;
+            let origin = url.origin().ascii_serialization();
             Ok(Self {
-                origin: url.origin().ascii_serialization(),
+                calendars: crate::calendar_server::CalendarClients::configured(&origin)?,
+                origin,
                 dev_port: url.port_or_known_default().filter(|_| !secure),
                 secure,
                 dummy_hash: dummy_hash.into(),
@@ -209,6 +215,26 @@ pub mod server {
             .route("/healthz", get(|| async { StatusCode::NO_CONTENT }))
             .route("/auth/login", post(sign_in))
             .route("/auth/logout", post(sign_out))
+            .route(
+                "/calendar/{provider}/connect",
+                post(crate::calendar_server::connect),
+            )
+            .route(
+                "/calendar/{provider}/callback",
+                get(crate::calendar_server::callback),
+            )
+            .route(
+                "/calendar/{provider}/disconnect",
+                post(crate::calendar_server::disconnect),
+            )
+            .route(
+                "/calendar/{provider}/select",
+                post(crate::calendar_server::select),
+            )
+            .route(
+                "/calendar/{provider}/share",
+                post(crate::calendar_server::share),
+            )
             .layer(DefaultBodyLimit::max(8 * 1024))
             .with_state(state.clone())
             .serve_dioxus_application(ServeConfig::new(), App)
@@ -219,17 +245,22 @@ pub mod server {
         let path = request.uri().path();
         let page = matches!(
             path.trim_end_matches('/'),
-            "" | "/todos" | "/shopping" | "/users"
+            "" | "/todos" | "/shopping" | "/users" | "/calendar"
         );
         let users_page = path.trim_end_matches('/') == "/users";
         let users_api = path.starts_with("/api/users");
         let session_api = path == "/api/session";
         let todos_api = path == "/api/todos" || path.starts_with("/api/todos/");
         let shopping_api = path == "/api/shopping" || path.starts_with("/api/shopping/");
+        let calendar_request = (path.starts_with("/calendar/google/")
+            || path.starts_with("/calendar/outlook/"))
+            || path == "/api/calendar"
+            || path.starts_with("/api/calendar/");
         let account_request = page
             || users_api
             || todos_api
             || shopping_api
+            || calendar_request
             || session_api
             || path == "/login"
             || path.starts_with("/auth/");
@@ -244,8 +275,9 @@ pub mod server {
             ).into_response());
         }
 
-        if page || users_api || todos_api || shopping_api || session_api {
-            let viewer = match state.token(request.headers()) {
+        if page || users_api || todos_api || shopping_api || session_api || calendar_request {
+            let token = state.token(request.headers());
+            let viewer = match token {
                 Some(token) => match run_blocking(move || lookup_session(&token)).await {
                     Ok(viewer) => viewer,
                     Err(_) => return private(StatusCode::SERVICE_UNAVAILABLE.into_response()),
@@ -258,9 +290,13 @@ pub mod server {
                         return private(StatusCode::FORBIDDEN.into_response());
                     }
                     request.extensions_mut().insert(viewer);
+                    if let Some(token) = token {
+                        request.extensions_mut().insert(SessionHash(token));
+                    }
+                    request.extensions_mut().insert(state.calendars.clone());
                 }
                 None if page => return private(Redirect::to("/login").into_response()),
-                None if users_api || todos_api || shopping_api => {
+                None if users_api || todos_api || shopping_api || calendar_request => {
                     return private(StatusCode::UNAUTHORIZED.into_response())
                 }
                 None => {}
@@ -356,7 +392,7 @@ pub mod server {
         })
     }
 
-    fn now() -> i64 {
+    pub fn now() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

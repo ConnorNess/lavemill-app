@@ -4,8 +4,7 @@ use chrono::{Datelike, Days, Months, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 pub fn household_date() -> Result<NaiveDate, &'static str> {
-    let zone = std::env::var("LAVEMILL_TIME_ZONE").unwrap_or_else(|_| "Europe/London".into());
-    let zone: chrono_tz::Tz = zone.parse().map_err(|_| "Invalid household time zone.")?;
+    let zone = crate::household_time::time_zone()?;
     Ok(Utc::now().with_timezone(&zone).date_naive())
 }
 
