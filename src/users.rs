@@ -9,6 +9,7 @@ struct User {
     last_name: String,
     is_admin: bool,
     plex_profile_id: Option<i64>,
+    steam_id: Option<String>,
 }
 
 #[get("/api/users")]
@@ -18,9 +19,13 @@ async fn list_users() -> Result<Vec<User>, ServerFnError> {
         let db = crate::auth::server::connection()?;
         let mut query = db
             .prepare(
-                "SELECT users.id, username, first_name, last_name, is_admin, external_profile_id
-                 FROM users LEFT JOIN activity_profile_links
-                   ON activity_profile_links.user_id = users.id AND provider = 'plex'
+                "SELECT users.id, username, first_name, last_name, is_admin,
+                        plex.external_profile_id, CAST(steam.external_profile_id AS TEXT)
+                 FROM users
+                 LEFT JOIN activity_profile_links AS plex
+                   ON plex.user_id = users.id AND plex.provider = 'plex'
+                 LEFT JOIN activity_profile_links AS steam
+                   ON steam.user_id = users.id AND steam.provider = 'steam'
                  ORDER BY is_admin DESC, username",
             )
             .map_err(crate::accounts::database_error)?;
@@ -33,6 +38,7 @@ async fn list_users() -> Result<Vec<User>, ServerFnError> {
                     last_name: row.get(3)?,
                     is_admin: row.get(4)?,
                     plex_profile_id: row.get(5)?,
+                    steam_id: row.get(6)?,
                 })
             })
             .map_err(crate::accounts::database_error)?;
@@ -100,19 +106,63 @@ fn write_plex_profile(
     id: i64,
     profile_id: Option<i64>,
 ) -> Result<(), &'static str> {
+    write_activity_profile(db, id, "plex", profile_id)
+}
+
+#[post("/api/users/steam-profile")]
+async fn save_steam_profile(id: i64, steam_id: String) -> Result<Option<String>, ServerFnError> {
+    require_admin()?;
+    let result = crate::auth::server::run_blocking(move || {
+        write_steam_profile(&crate::auth::server::connection()?, id, &steam_id)
+    })
+    .await;
+    Ok(result.err().map(str::to_owned))
+}
+
+#[cfg(feature = "server")]
+fn write_steam_profile(
+    db: &rusqlite::Connection,
+    id: i64,
+    steam_id: &str,
+) -> Result<(), &'static str> {
+    let steam_id = steam_id.trim();
+    let profile_id = if steam_id.is_empty() {
+        None
+    } else if steam_id.len() == 17
+        && !steam_id.starts_with('0')
+        && steam_id.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        steam_id.parse().ok()
+    } else {
+        return Err("Enter a 17-digit SteamID64.");
+    };
+    write_activity_profile(db, id, "steam", profile_id)
+}
+
+#[cfg(feature = "server")]
+fn write_activity_profile(
+    db: &rusqlite::Connection,
+    id: i64,
+    provider: &str,
+    profile_id: Option<i64>,
+) -> Result<(), &'static str> {
     if let Some(profile_id) = profile_id {
         db.execute(
             "INSERT INTO activity_profile_links (user_id, provider, external_profile_id)
-             VALUES (?1, 'plex', ?2)
+             VALUES (?1, ?2, ?3)
              ON CONFLICT (user_id, provider)
              DO UPDATE SET external_profile_id = excluded.external_profile_id",
-            rusqlite::params![id, profile_id],
+            rusqlite::params![id, provider, profile_id],
         )
         .map_err(|error| match error {
             rusqlite::Error::SqliteFailure(code, _)
                 if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
             {
-                "That Plex profile is already linked to another user."
+                if provider == "steam" {
+                    "That Steam account is already linked to another user."
+                } else {
+                    "That Plex profile is already linked to another user."
+                }
             }
             rusqlite::Error::SqliteFailure(code, _)
                 if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY =>
@@ -123,8 +173,8 @@ fn write_plex_profile(
         })?;
     } else {
         db.execute(
-            "DELETE FROM activity_profile_links WHERE user_id = ?1 AND provider = 'plex'",
-            [id],
+            "DELETE FROM activity_profile_links WHERE user_id = ?1 AND provider = ?2",
+            rusqlite::params![id, provider],
         )
         .map_err(crate::accounts::database_error)?;
     }
@@ -222,6 +272,7 @@ pub fn Users() -> Element {
                                     }
                                     UserDetails { user: user.clone(), on_saved: |_| {} }
                                     PlexProfileForm { id: user.id, initial: user.plex_profile_id, profiles }
+                                    SteamProfileForm { id: user.id, initial: user.steam_id.clone() }
                                     PasswordReset { id: user.id, is_admin: user.is_admin }
                                 }
                             }
@@ -295,6 +346,45 @@ fn PlexProfileForm(
                 p { "{hint}" }
             }
             button { class: "undo-button", r#type: "submit", disabled: !ready() || pending() || !can_save, "Save Plex profile" }
+            FormNotice { notice: notice() }
+        }
+    }
+}
+
+#[component]
+fn SteamProfileForm(id: i64, initial: Option<String>) -> Element {
+    let mut saved = use_signal(|| initial.unwrap_or_default());
+    let mut input = use_signal(|| saved());
+    let mut ready = use_signal(|| false);
+    let mut pending = use_signal(|| false);
+    let mut notice = use_signal(|| None);
+
+    rsx! {
+        form { class: "reset-form", method: "post", onmounted: move |_| ready.set(true), onsubmit: move |event| {
+            event.prevent_default();
+            async move {
+                let steam_id = input().trim().to_owned();
+                if pending() || steam_id == saved() { return; }
+                pending.set(true);
+                notice.set(None);
+                let result = save_steam_profile(id, steam_id.clone()).await;
+                pending.set(false);
+                if matches!(result, Ok(None)) {
+                    input.set(steam_id.clone());
+                    saved.set(steam_id);
+                }
+                notice.set(Some(form_notice(result, "Steam profile saved.")));
+            }
+        },
+            label { r#for: "steam-id-{id}", "SteamID64" }
+            input { id: "steam-id-{id}", inputmode: "numeric", value: "{input}",
+                aria_describedby: "steam-id-help-{id}", disabled: !ready() || pending(),
+                oninput: move |event| input.set(event.value()),
+            }
+            p { id: "steam-id-help-{id}", "Link at the member’s request to share their visible playing activity with the household. Clear the field and save to unlink." }
+            button { class: "undo-button", r#type: "submit",
+                disabled: !ready() || pending() || input().trim() == saved(), "Save Steam profile"
+            }
             FormNotice { notice: notice() }
         }
     }
@@ -436,7 +526,38 @@ fn FormNotice(notice: Option<(bool, String)>) -> Element {
 
 #[cfg(all(test, feature = "server"))]
 mod tests {
-    use super::write_plex_profile;
+    use super::{write_plex_profile, write_steam_profile};
+
+    #[test]
+    fn steam_links_validate_and_leave_plex_links_intact() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("household.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let db = crate::database::open(&path).unwrap();
+        db.execute_batch(
+            "INSERT INTO users (id, username, first_name, last_name, password_hash)
+             VALUES (1, 'admin', 'Admin', 'Example', 'unused'),
+                    (2, 'member', 'Household', 'Member', 'unused');",
+        )
+        .unwrap();
+        let profile = |provider: &str| {
+            db.query_row(
+                "SELECT external_profile_id FROM activity_profile_links WHERE user_id = 1 AND provider = ?1",
+                [provider],
+                |row| row.get::<_, i64>(0),
+            )
+        };
+        write_plex_profile(&db, 1, Some(100)).unwrap();
+        write_steam_profile(&db, 1, " 76561198000000001 ").unwrap();
+        assert_eq!(profile("steam").unwrap(), 76561198000000001);
+        assert!(write_steam_profile(&db, 2, "76561198000000001").is_err());
+        assert!(write_steam_profile(&db, 1, "not-a-steam-id").is_err());
+        write_steam_profile(&db, 1, "76561198000000002").unwrap();
+        assert_eq!(profile("steam").unwrap(), 76561198000000002);
+        write_steam_profile(&db, 1, " ").unwrap();
+        assert!(profile("steam").is_err());
+        assert_eq!(profile("plex").unwrap(), 100);
+    }
 
     #[test]
     fn plex_links_persist_and_reject_duplicate_profiles() {
