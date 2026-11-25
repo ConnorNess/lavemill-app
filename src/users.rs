@@ -8,6 +8,7 @@ struct User {
     first_name: String,
     last_name: String,
     is_admin: bool,
+    plex_profile_id: Option<i64>,
 }
 
 #[get("/api/users")]
@@ -17,8 +18,10 @@ async fn list_users() -> Result<Vec<User>, ServerFnError> {
         let db = crate::auth::server::connection()?;
         let mut query = db
             .prepare(
-                "SELECT id, username, first_name, last_name, is_admin
-             FROM users ORDER BY is_admin DESC, username",
+                "SELECT users.id, username, first_name, last_name, is_admin, external_profile_id
+                 FROM users LEFT JOIN activity_profile_links
+                   ON activity_profile_links.user_id = users.id AND provider = 'plex'
+                 ORDER BY is_admin DESC, username",
             )
             .map_err(crate::accounts::database_error)?;
         let rows = query
@@ -29,6 +32,7 @@ async fn list_users() -> Result<Vec<User>, ServerFnError> {
                     first_name: row.get(2)?,
                     last_name: row.get(3)?,
                     is_admin: row.get(4)?,
+                    plex_profile_id: row.get(5)?,
                 })
             })
             .map_err(crate::accounts::database_error)?;
@@ -37,6 +41,94 @@ async fn list_users() -> Result<Vec<User>, ServerFnError> {
     })
     .await
     .map_err(ServerFnError::new)
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+struct PlexProfile {
+    id: i64,
+    name: String,
+}
+
+#[get("/api/users/plex-profiles")]
+async fn plex_profiles() -> Result<Option<Vec<PlexProfile>>, ServerFnError> {
+    require_admin()?;
+    let profiles = tautulli()?.profiles().await.map_err(ServerFnError::new)?;
+    Ok(profiles.map(|profiles| {
+        let mut profiles: Vec<_> = profiles
+            .into_iter()
+            .map(|profile| PlexProfile {
+                id: profile.user_id,
+                name: profile.friendly_name,
+            })
+            .collect();
+        profiles.sort_by_cached_key(|profile| (profile.name.to_lowercase(), profile.id));
+        profiles
+    }))
+}
+
+#[post("/api/users/plex-profile")]
+async fn save_plex_profile(
+    id: i64,
+    profile_id: Option<i64>,
+) -> Result<Option<String>, ServerFnError> {
+    require_admin()?;
+    if let Some(profile_id) = profile_id {
+        match tautulli()?.profiles().await {
+            Ok(Some(profiles)) if profiles.iter().any(|profile| profile.user_id == profile_id) => {}
+            Ok(Some(_)) => return Ok(Some("That Plex profile is no longer available.".into())),
+            Ok(None) => return Ok(Some("Tautulli is not configured.".into())),
+            Err(error) => return Ok(Some(error.into())),
+        }
+    }
+    let result = crate::auth::server::run_blocking(move || {
+        write_plex_profile(&crate::auth::server::connection()?, id, profile_id)
+    })
+    .await;
+    Ok(result.err().map(str::to_owned))
+}
+
+#[cfg(feature = "server")]
+fn tautulli() -> Result<crate::tautulli::Tautulli, ServerFnError> {
+    dioxus::fullstack::FullstackContext::current()
+        .and_then(|context| context.extension())
+        .ok_or_else(|| ServerFnError::new("Tautulli configuration is unavailable."))
+}
+
+#[cfg(feature = "server")]
+fn write_plex_profile(
+    db: &rusqlite::Connection,
+    id: i64,
+    profile_id: Option<i64>,
+) -> Result<(), &'static str> {
+    if let Some(profile_id) = profile_id {
+        db.execute(
+            "INSERT INTO activity_profile_links (user_id, provider, external_profile_id)
+             VALUES (?1, 'plex', ?2)
+             ON CONFLICT (user_id, provider)
+             DO UPDATE SET external_profile_id = excluded.external_profile_id",
+            rusqlite::params![id, profile_id],
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+            {
+                "That Plex profile is already linked to another user."
+            }
+            rusqlite::Error::SqliteFailure(code, _)
+                if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY =>
+            {
+                "User not found."
+            }
+            _ => crate::accounts::database_error(error),
+        })?;
+    } else {
+        db.execute(
+            "DELETE FROM activity_profile_links WHERE user_id = ?1 AND provider = 'plex'",
+            [id],
+        )
+        .map_err(crate::accounts::database_error)?;
+    }
+    Ok(())
 }
 
 #[post("/api/users/create")]
@@ -108,6 +200,7 @@ fn require_admin() -> Result<(), ServerFnError> {
 #[component]
 pub fn Users() -> Element {
     let mut users = use_server_future(list_users)?;
+    let profiles = use_resource(plex_profiles);
     let result = users.read();
     rsx! {
         main { id: "main", class: "dashboard users-page", tabindex: "-1",
@@ -128,6 +221,7 @@ pub fn Users() -> Element {
                                         else { "Account details" }
                                     }
                                     UserDetails { user: user.clone(), on_saved: |_| {} }
+                                    PlexProfileForm { id: user.id, initial: user.plex_profile_id, profiles }
                                     PasswordReset { id: user.id, is_admin: user.is_admin }
                                 }
                             }
@@ -137,6 +231,71 @@ pub fn Users() -> Element {
                 Some(Err(_)) => rsx! { p { class: "form-error", role: "alert", "Could not load users. Check your session and reload." } },
                 None => rsx! { p { "Loading users…" } },
             }
+        }
+    }
+}
+
+#[component]
+fn PlexProfileForm(
+    id: i64,
+    initial: Option<i64>,
+    profiles: Resource<Result<Option<Vec<PlexProfile>>, ServerFnError>>,
+) -> Element {
+    let mut saved = use_signal(|| initial);
+    let mut selected = use_signal(|| initial);
+    let mut ready = use_signal(|| false);
+    let mut pending = use_signal(|| false);
+    let mut notice = use_signal(|| None);
+    let profiles = profiles.read();
+    let (choices, hint) = match profiles.as_ref() {
+        Some(Ok(Some(choices))) => (choices.as_slice(), None),
+        Some(Ok(None)) => (&[][..], Some("Tautulli is not configured.")),
+        Some(Err(_)) => (&[][..], Some("Could not load Plex profiles.")),
+        None => (&[][..], Some("Loading Plex profiles…")),
+    };
+    let missing = saved().filter(|id| !choices.iter().any(|profile| profile.id == *id));
+    let value = selected().map(|id| id.to_string()).unwrap_or_default();
+    let can_save = selected() != saved();
+
+    rsx! {
+        form { class: "reset-form", method: "post", onmounted: move |_| ready.set(true), onsubmit: move |event| {
+            event.prevent_default();
+            async move {
+                if pending() || selected() == saved() { return; }
+                let profile_id = selected();
+                pending.set(true);
+                notice.set(None);
+                let result = save_plex_profile(id, profile_id).await;
+                pending.set(false);
+                if matches!(result, Ok(None)) {
+                    saved.set(profile_id);
+                }
+                notice.set(Some(form_notice(result, "Plex profile saved.")));
+            }
+        },
+            label { r#for: "plex-profile-{id}", "Plex profile" }
+            select { id: "plex-profile-{id}", value,
+                disabled: !ready() || pending() || (choices.is_empty() && saved().is_none()),
+                onchange: move |event| selected.set(event.value().parse().ok()),
+                option { value: "", "No Plex profile" }
+                if let Some(id) = missing {
+                    option { value: "{id}", "Linked profile ({id})" }
+                }
+                for profile in choices {
+                    option { key: "{profile.id}", value: "{profile.id}",
+                        if choices.iter().filter(|other| other.name.eq_ignore_ascii_case(&profile.name)).count() > 1 {
+                            "{profile.name} ({profile.id})"
+                        } else {
+                            "{profile.name}"
+                        }
+                    }
+                }
+            }
+            if let Some(hint) = hint {
+                p { "{hint}" }
+            }
+            button { class: "undo-button", r#type: "submit", disabled: !ready() || pending() || !can_save, "Save Plex profile" }
+            FormNotice { notice: notice() }
         }
     }
 }
@@ -272,5 +431,44 @@ fn FormNotice(notice: Option<(bool, String)>) -> Element {
         Some((true, message)) => rsx! { p { class: "form-feedback", role: "status", "{message}" } },
         Some((false, message)) => rsx! { p { class: "form-error", role: "alert", "{message}" } },
         None => rsx! {},
+    }
+}
+
+#[cfg(all(test, feature = "server"))]
+mod tests {
+    use super::write_plex_profile;
+
+    #[test]
+    fn plex_links_persist_and_reject_duplicate_profiles() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("household.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let db = crate::database::open(&path).unwrap();
+        db.execute_batch(
+            "INSERT INTO users (id, username, first_name, last_name, password_hash)
+             VALUES (1, 'connor', 'Connor', 'Example', 'unused'),
+                    (2, 'member', 'Household', 'Member', 'unused');",
+        )
+        .unwrap();
+        write_plex_profile(&db, 1, Some(100)).unwrap();
+        write_plex_profile(&db, 2, Some(200)).unwrap();
+        assert!(write_plex_profile(&db, 2, Some(100)).is_err());
+        drop(db);
+
+        let db = crate::database::open(&path).unwrap();
+        let profile = |id| {
+            db.query_row(
+                "SELECT external_profile_id FROM activity_profile_links WHERE user_id = ?1",
+                [id],
+                |row| row.get::<_, i64>(0),
+            )
+        };
+        assert_eq!(profile(1).unwrap(), 100);
+        assert_eq!(profile(2).unwrap(), 200);
+        write_plex_profile(&db, 1, Some(300)).unwrap();
+        assert_eq!(profile(1).unwrap(), 300);
+        write_plex_profile(&db, 1, None).unwrap();
+        db.execute("DELETE FROM users WHERE id = 2", []).unwrap();
+        assert!(profile(1).is_err() && profile(2).is_err());
     }
 }

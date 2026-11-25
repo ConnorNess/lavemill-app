@@ -79,6 +79,7 @@ pub mod server {
         attempts: Arc<Mutex<Attempts>>,
         verification_slots: Arc<Semaphore>,
         calendars: crate::calendar_server::CalendarClients,
+        tautulli: crate::tautulli::Tautulli,
     }
 
     #[derive(Clone, Copy)]
@@ -133,6 +134,7 @@ pub mod server {
             let origin = url.origin().ascii_serialization();
             Ok(Self {
                 calendars: crate::calendar_server::CalendarClients::configured(&origin)?,
+                tautulli: crate::tautulli::Tautulli::configured(),
                 origin,
                 dev_port: url.port_or_known_default().filter(|_| !secure),
                 secure,
@@ -294,6 +296,7 @@ pub mod server {
                         request.extensions_mut().insert(SessionHash(token));
                     }
                     request.extensions_mut().insert(state.calendars.clone());
+                    request.extensions_mut().insert(state.tautulli.clone());
                 }
                 None if page => return private(Redirect::to("/login").into_response()),
                 None if users_api || todos_api || shopping_api || calendar_request => {

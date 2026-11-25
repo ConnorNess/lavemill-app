@@ -18,6 +18,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
         include_str!("migrations/006_google_calendar_sharing.sql"),
     ),
     (7, include_str!("migrations/007_calendar_providers.sql")),
+    (8, include_str!("migrations/008_activity_profile_links.sql")),
 ];
 
 pub fn initialize(path: &Path) -> Result<()> {
@@ -85,8 +86,7 @@ mod tests {
     #[test]
     fn calendar_provider_migration_preserves_google_connections_and_attempts() {
         let mut db = rusqlite::Connection::open_in_memory().unwrap();
-        let (latest, previous) = super::MIGRATIONS.split_last().unwrap();
-        super::migrate(&mut db, previous).unwrap();
+        super::migrate(&mut db, &super::MIGRATIONS[..6]).unwrap();
         db.execute_batch(
             "INSERT INTO users (id, username, first_name, last_name, password_hash)
              VALUES (1, 'member', 'Household', 'Member', 'unused');
@@ -94,7 +94,6 @@ mod tests {
              INSERT INTO google_calendar_connections VALUES (1, X'BEEF', 'family', 1);
              INSERT INTO google_calendar_attempts VALUES (1, X'01', X'02', 'verifier', 9999999999, 1);",
         ).unwrap();
-        assert_eq!(latest.0, 7);
         super::migrate(&mut db, super::MIGRATIONS).unwrap();
         assert_eq!(
             db.query_row(

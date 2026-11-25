@@ -13,6 +13,8 @@ mod users;
 use users::Users;
 #[cfg(feature = "server")]
 mod database;
+#[cfg(feature = "server")]
+mod tautulli;
 
 #[cfg(feature = "server")]
 mod todo_storage;
