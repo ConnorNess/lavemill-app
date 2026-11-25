@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 mod accounts;
 mod auth;
 use auth::Login;
+mod activity;
 mod calendar;
 use calendar::{Calendar, CalendarCard};
 #[cfg(feature = "server")]
@@ -142,6 +143,7 @@ fn Home() -> Element {
                 TasksCard {}
                 ShoppingCard {}
                 CalendarCard {}
+                activity::ActivityCard {}
             }
         }
     }

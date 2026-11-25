@@ -47,6 +47,11 @@ svg { display: block; flex-shrink: 0; }
 h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em; }
 .count-badge { padding: 4px 9px; border-radius: 7px; background: #eef6fa; color: var(--blue-ink); font-size: 0.75rem; font-weight: 600; }
 .card-body { padding: 6px 22px 18px; flex: 1; }
+.activity-card { grid-column: 1 / -1; }
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: 12px; padding: 12px 0; overflow-wrap: anywhere; }
+.activity-list li + li { border-top: 1px solid var(--line); }
+.activity-list span, .activity-message { color: var(--muted); }
 .item-list { list-style: none; margin: 0; padding: 0; }
 .list-row { display: flex; align-items: flex-start; gap: 12px; padding-block: 20px; }
 .list-row + .list-row { border-top: 1px solid #f0f0ec; }

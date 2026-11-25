@@ -2075,6 +2075,7 @@ dependencies = [
  "chrono-tz",
  "dioxus",
  "getrandom 0.3.4",
+ "gloo-timers",
  "reqwest",
  "ring",
  "rpassword",

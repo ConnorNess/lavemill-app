@@ -254,6 +254,7 @@ pub mod server {
         let session_api = path == "/api/session";
         let todos_api = path == "/api/todos" || path.starts_with("/api/todos/");
         let shopping_api = path == "/api/shopping" || path.starts_with("/api/shopping/");
+        let activity_api = path == "/api/activity";
         let calendar_request = (path.starts_with("/calendar/google/")
             || path.starts_with("/calendar/outlook/"))
             || path == "/api/calendar"
@@ -262,6 +263,7 @@ pub mod server {
             || users_api
             || todos_api
             || shopping_api
+            || activity_api
             || calendar_request
             || session_api
             || path == "/login"
@@ -277,7 +279,14 @@ pub mod server {
             ).into_response());
         }
 
-        if page || users_api || todos_api || shopping_api || session_api || calendar_request {
+        if page
+            || users_api
+            || todos_api
+            || shopping_api
+            || activity_api
+            || session_api
+            || calendar_request
+        {
             let token = state.token(request.headers());
             let viewer = match token {
                 Some(token) => match run_blocking(move || lookup_session(&token)).await {
@@ -299,7 +308,12 @@ pub mod server {
                     request.extensions_mut().insert(state.tautulli.clone());
                 }
                 None if page => return private(Redirect::to("/login").into_response()),
-                None if users_api || todos_api || shopping_api || calendar_request => {
+                None if users_api
+                    || todos_api
+                    || shopping_api
+                    || activity_api
+                    || calendar_request =>
+                {
                     return private(StatusCode::UNAUTHORIZED.into_response())
                 }
                 None => {}

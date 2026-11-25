@@ -31,6 +31,30 @@ pub(crate) struct Profile {
     pub friendly_name: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct Activity {
+    pub sessions: Vec<Playback>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Playback {
+    #[serde(deserialize_with = "profile_id")]
+    pub user_id: i64,
+    pub session_id: String,
+    pub full_title: String,
+    pub state: PlaybackState,
+}
+
+#[derive(Clone, Copy, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum PlaybackState {
+    Paused,
+    Buffering,
+    Playing,
+    #[serde(other)]
+    Other,
+}
+
 fn profile_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
     #[derive(Deserialize)]
     #[serde(untagged)]
@@ -61,6 +85,20 @@ impl Tautulli {
         let mut profiles: Vec<Profile> = connection.get("get_user_names").await?;
         profiles.retain(|profile| profile.user_id > 0);
         Ok(Some(profiles))
+    }
+
+    pub(crate) fn is_configured(&self) -> bool {
+        !matches!(&self.0, Ok(None))
+    }
+
+    pub(crate) async fn activity(&self) -> Result<Activity, &'static str> {
+        let connection = self
+            .0
+            .as_ref()
+            .map_err(|error| *error)?
+            .as_ref()
+            .ok_or("Tautulli is not configured.")?;
+        connection.get("get_activity").await
     }
 }
 
