@@ -1,5 +1,5 @@
-use super::{Ingredient, Recipe, RecipeCard, RecipeContents, Section, Step};
-use rusqlite::{Connection, OptionalExtension, Result, Row};
+use super::{Ingredient, Recipe, RecipeCard, RecipeContents, SaveRecipe, Section, Step};
+use rusqlite::{params, Connection, OptionalExtension, Result, Row};
 
 pub(super) fn list(db: &Connection) -> Result<Vec<RecipeCard>> {
     let mut query =
@@ -82,9 +82,156 @@ fn read_sections<T>(
     sections.collect()
 }
 
+pub(super) fn validate(
+    mut contents: RecipeContents,
+) -> std::result::Result<RecipeContents, &'static str> {
+    fn trim(text: &mut String) {
+        *text = text.trim().to_owned();
+    }
+
+    fn optional(text: &mut Option<String>) {
+        *text = text
+            .take()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+    }
+
+    trim(&mut contents.title);
+    if contents.title.is_empty() {
+        return Err("Enter a recipe title.");
+    }
+    if contents.ingredients.is_empty() || contents.steps.is_empty() {
+        return Err("Add at least one ingredient and one step.");
+    }
+    for section in &mut contents.ingredients {
+        optional(&mut section.heading);
+        if section.entries.is_empty() {
+            return Err(
+                "Add an ingredient to each ingredient section or remove the empty section.",
+            );
+        }
+        for ingredient in &mut section.entries {
+            trim(&mut ingredient.name);
+            optional(&mut ingredient.quantity);
+            if ingredient.name.is_empty() {
+                return Err("Enter a name for each ingredient.");
+            }
+        }
+    }
+    for section in &mut contents.steps {
+        optional(&mut section.heading);
+        if section.entries.is_empty() {
+            return Err("Add a step to each step section or remove the empty section.");
+        }
+        for step in &mut section.entries {
+            trim(&mut step.instructions);
+            optional(&mut step.note);
+            if step.instructions.is_empty() {
+                return Err("Enter instructions for each step.");
+            }
+        }
+    }
+    Ok(contents)
+}
+
+pub(super) fn create(db: &mut Connection, contents: &RecipeContents) -> Result<SaveRecipe> {
+    let tx = db.transaction()?;
+    let id = tx.query_row(
+        "INSERT INTO recipes (title) VALUES (?1) RETURNING id",
+        [&contents.title],
+        |row| row.get(0),
+    )?;
+    write_contents(&tx, id, contents)?;
+    tx.commit()?;
+    Ok(SaveRecipe::Saved(id))
+}
+
+fn write_contents(db: &Connection, id: i64, contents: &RecipeContents) -> Result<()> {
+    write_sections(
+        db, id, &contents.ingredients,
+        "INSERT INTO recipe_ingredient_sections (recipe_id, position, heading) VALUES (?1, ?2, ?3) RETURNING id",
+        "INSERT INTO recipe_ingredients (section_id, position, name, quantity) VALUES (?1, ?2, ?3, ?4)",
+        |entry| (&entry.name, entry.quantity.as_deref()),
+    )?;
+    write_sections(
+        db, id, &contents.steps,
+        "INSERT INTO recipe_step_sections (recipe_id, position, heading) VALUES (?1, ?2, ?3) RETURNING id",
+        "INSERT INTO recipe_steps (section_id, position, instructions, note) VALUES (?1, ?2, ?3, ?4)",
+        |entry| (&entry.instructions, entry.note.as_deref()),
+    )
+}
+
+fn write_sections<T>(
+    db: &Connection,
+    recipe_id: i64,
+    sections: &[Section<T>],
+    section_sql: &str,
+    entry_sql: &str,
+    fields: fn(&T) -> (&str, Option<&str>),
+) -> Result<()> {
+    let mut section_query = db.prepare(section_sql)?;
+    let mut entry_query = db.prepare(entry_sql)?;
+    for (position, section) in sections.iter().enumerate() {
+        let id: i64 = section_query
+            .query_row(params![recipe_id, position, section.heading], |row| {
+                row.get(0)
+            })?;
+        for (position, entry) in section.entries.iter().enumerate() {
+            let (text, detail) = fields(entry);
+            entry_query.execute(params![id, position, text, detail])?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creates_a_valid_recipe_and_rolls_back_incomplete_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recipes.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        let mut draft = RecipeContents {
+            title: " Lemon toast ".into(),
+            ingredients: vec![Section {
+                heading: Some("  ".into()),
+                entries: vec![Ingredient {
+                    name: "Bread".into(),
+                    quantity: Some(" a handful ".into()),
+                }],
+            }],
+            steps: vec![Section {
+                heading: Some("Grill".into()),
+                entries: vec![Step {
+                    instructions: "  ".into(),
+                    note: Some("Watch the edges".into()),
+                }],
+            }],
+        };
+        assert_eq!(
+            validate(draft.clone()).unwrap_err(),
+            "Enter instructions for each step."
+        );
+        assert!(create(&mut db, &draft).is_err());
+        assert!(list(&db).unwrap().is_empty());
+        draft.steps[0].entries[0].instructions = "Toast it".into();
+        let validated = validate(draft).unwrap();
+        let SaveRecipe::Saved(id) = create(&mut db, &validated).unwrap() else {
+            panic!("expected a saved recipe");
+        };
+        let mut reopened = crate::database::open(&path).unwrap();
+        let contents = get(&mut reopened, id).unwrap().unwrap().contents;
+        assert_eq!(contents, validated);
+        assert_eq!(contents.title, "Lemon toast");
+        assert_eq!(contents.ingredients[0].heading, None);
+        assert_eq!(
+            contents.ingredients[0].entries[0].quantity.as_deref(),
+            Some("a handful")
+        );
+    }
 
     #[test]
     fn lists_recipes_and_reads_sections_in_saved_order() {

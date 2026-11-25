@@ -2,6 +2,9 @@ use crate::Route;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
+mod editor;
+pub(super) use editor::NewRecipe;
+
 #[cfg(feature = "server")]
 mod storage;
 
@@ -42,6 +45,12 @@ struct Recipe {
     contents: RecipeContents,
 }
 
+#[derive(Deserialize, Serialize)]
+enum SaveRecipe {
+    Saved(i64),
+    Invalid(String),
+}
+
 #[cfg(feature = "server")]
 fn require_member() -> Result<(), ServerFnError> {
     dioxus::fullstack::FullstackContext::current()
@@ -71,6 +80,31 @@ async fn get_recipe(id: i64) -> Result<Option<Recipe>, ServerFnError> {
     .map_err(ServerFnError::new)
 }
 
+#[post("/api/recipes/create")]
+async fn create_recipe(contents: RecipeContents) -> Result<SaveRecipe, ServerFnError> {
+    require_member()?;
+    save_recipe(contents, storage::create).await
+}
+
+#[cfg(feature = "server")]
+async fn save_recipe(
+    contents: RecipeContents,
+    write: impl FnOnce(&mut rusqlite::Connection, &RecipeContents) -> rusqlite::Result<SaveRecipe>
+        + Send
+        + 'static,
+) -> Result<SaveRecipe, ServerFnError> {
+    let contents = match storage::validate(contents) {
+        Ok(contents) => contents,
+        Err(message) => return Ok(SaveRecipe::Invalid(message.into())),
+    };
+    crate::auth::server::run_blocking(move || {
+        write(&mut crate::auth::server::connection()?, &contents)
+            .map_err(crate::accounts::database_error)
+    })
+    .await
+    .map_err(ServerFnError::new)
+}
+
 #[component]
 pub(super) fn Recipes() -> Element {
     let recipes = use_server_future(list_recipes)?;
@@ -78,6 +112,7 @@ pub(super) fn Recipes() -> Element {
         document::Title { "Lavemill · Recipes" }
         main { id: "main", class: "dashboard recipes-page", tabindex: "-1",
             h1 { "Recipes" }
+            Link { class: "recipe-action", to: Route::NewRecipe {}, "Add recipe" }
             match recipes.read().as_ref() {
                 Some(Ok(cards)) if cards.is_empty() => rsx! { p { "No recipes yet." } },
                 Some(Ok(cards)) => rsx! {
