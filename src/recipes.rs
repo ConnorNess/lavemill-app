@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 mod editor;
-pub(super) use editor::NewRecipe;
+pub(super) use editor::{EditRecipe, NewRecipe};
 
 #[cfg(feature = "server")]
 mod storage;
@@ -49,6 +49,7 @@ struct Recipe {
 enum SaveRecipe {
     Saved(i64),
     Invalid(String),
+    Conflict,
 }
 
 #[cfg(feature = "server")]
@@ -84,6 +85,19 @@ async fn get_recipe(id: i64) -> Result<Option<Recipe>, ServerFnError> {
 async fn create_recipe(contents: RecipeContents) -> Result<SaveRecipe, ServerFnError> {
     require_member()?;
     save_recipe(contents, storage::create).await
+}
+
+#[post("/api/recipes/:id/edit")]
+async fn update_recipe(
+    id: i64,
+    revision: i64,
+    contents: RecipeContents,
+) -> Result<SaveRecipe, ServerFnError> {
+    require_member()?;
+    save_recipe(contents, move |db, contents| {
+        storage::update(db, id, revision, contents)
+    })
+    .await
 }
 
 #[cfg(feature = "server")]
@@ -146,6 +160,7 @@ fn RecipeDetailContent(id: i64) -> Element {
                 Some(Ok(Some(recipe))) => rsx! {
                     document::Title { "Lavemill · {recipe.contents.title}" }
                     h1 { "{recipe.contents.title}" }
+                    Link { class: "recipe-action", to: Route::EditRecipe { id }, "Edit recipe" }
                     RecipeMethod { contents: recipe.contents.clone() }
                 },
                 Some(Ok(None)) => rsx! { h1 { "Recipe not found" } },

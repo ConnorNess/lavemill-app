@@ -146,6 +146,42 @@ pub(super) fn create(db: &mut Connection, contents: &RecipeContents) -> Result<S
     Ok(SaveRecipe::Saved(id))
 }
 
+pub(super) fn update(
+    db: &mut Connection,
+    id: i64,
+    revision: i64,
+    contents: &RecipeContents,
+) -> Result<SaveRecipe> {
+    let tx = db.transaction()?;
+    let changed = tx.execute(
+        "UPDATE recipes SET title = ?3, revision = revision + 1 WHERE id = ?1 AND revision = ?2",
+        params![id, revision, contents.title],
+    )?;
+    if changed == 0 {
+        let exists = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM recipes WHERE id = ?1)",
+            [id],
+            |row| row.get(0),
+        )?;
+        return Ok(if exists {
+            SaveRecipe::Conflict
+        } else {
+            SaveRecipe::Invalid("Recipe not found.".into())
+        });
+    }
+    tx.execute(
+        "DELETE FROM recipe_ingredient_sections WHERE recipe_id = ?1",
+        [id],
+    )?;
+    tx.execute(
+        "DELETE FROM recipe_step_sections WHERE recipe_id = ?1",
+        [id],
+    )?;
+    write_contents(&tx, id, contents)?;
+    tx.commit()?;
+    Ok(SaveRecipe::Saved(id))
+}
+
 fn write_contents(db: &Connection, id: i64, contents: &RecipeContents) -> Result<()> {
     write_sections(
         db, id, &contents.ingredients,
@@ -187,6 +223,79 @@ fn write_sections<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn editing_replaces_sections_without_overwriting_a_newer_recipe() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recipes.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut first = crate::database::open(&path).unwrap();
+        let mut second = crate::database::open(&path).unwrap();
+        let mut draft = RecipeContents {
+            title: "Toast".into(),
+            ingredients: vec![
+                Section {
+                    heading: None,
+                    entries: vec![Ingredient {
+                        name: "Bread".into(),
+                        quantity: Some("a slice".into()),
+                    }],
+                },
+                Section {
+                    heading: Some("Topping".into()),
+                    entries: vec![Ingredient {
+                        name: "Jam".into(),
+                        quantity: None,
+                    }],
+                },
+            ],
+            steps: vec![Section {
+                heading: Some("Grill".into()),
+                entries: vec![
+                    Step {
+                        instructions: "Slice it".into(),
+                        note: None,
+                    },
+                    Step {
+                        instructions: "Toast it".into(),
+                        note: Some("Watch the edges".into()),
+                    },
+                    Step {
+                        instructions: "Serve".into(),
+                        note: None,
+                    },
+                ],
+            }],
+        };
+        let SaveRecipe::Saved(id) = create(&mut first, &draft).unwrap() else {
+            panic!("expected a saved recipe");
+        };
+        let stale = get(&mut second, id).unwrap().unwrap();
+        draft.title = "Jam toast".into();
+        draft.ingredients.swap(0, 1);
+        draft.ingredients[1].entries[0].quantity = None;
+        draft.steps[0].entries.remove(0);
+        draft.steps[0].entries.swap(0, 1);
+        draft.steps[0].entries[1].note = None;
+        let revision = stale.revision;
+        assert!(
+            matches!(update(&mut first, id, revision, &draft).unwrap(), SaveRecipe::Saved(saved) if saved == id)
+        );
+        assert!(matches!(
+            update(&mut second, id, revision, &stale.contents).unwrap(),
+            SaveRecipe::Conflict
+        ));
+
+        let after = get(&mut second, id).unwrap().unwrap();
+        assert_eq!(after.revision, revision + 1);
+        assert_eq!(after.contents, draft);
+        let mut invalid_edit = draft.clone();
+        invalid_edit.steps[0].entries[0].instructions.clear();
+        assert!(update(&mut second, id, after.revision, &invalid_edit).is_err());
+        let after_failed_write = get(&mut first, id).unwrap().unwrap();
+        assert_eq!(after_failed_write.revision, after.revision);
+        assert_eq!(after_failed_write.contents, draft);
+    }
 
     #[test]
     fn creates_a_valid_recipe_and_rolls_back_incomplete_writes() {

@@ -1,4 +1,6 @@
-use super::{create_recipe, Ingredient, RecipeContents, SaveRecipe, Section, Step};
+use super::{
+    create_recipe, get_recipe, update_recipe, Ingredient, RecipeContents, SaveRecipe, Section, Step,
+};
 use crate::Route;
 use dioxus::prelude::*;
 
@@ -45,6 +47,16 @@ impl<T> Ordered<T> {
     }
 }
 
+impl<T> FromIterator<T> for Ordered<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(values: I) -> Self {
+        let items: Vec<_> = values.into_iter().enumerate().collect();
+        Self {
+            next_key: items.len(),
+            items,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum OrderAction {
     Up,
@@ -64,6 +76,19 @@ fn blank_sections() -> Ordered<SectionFields> {
     let mut sections = Ordered::default();
     sections.push(SectionFields::blank());
     sections
+}
+
+fn edit_sections<T>(
+    sections: Vec<Section<T>>,
+    entry: impl Fn(T) -> EntryFields,
+) -> Ordered<SectionFields> {
+    sections
+        .into_iter()
+        .map(|section| SectionFields {
+            heading: section.heading.unwrap_or_default(),
+            entries: section.entries.into_iter().map(&entry).collect(),
+        })
+        .collect()
 }
 
 fn contents<T>(
@@ -98,12 +123,62 @@ pub(crate) fn NewRecipe() -> Element {
 }
 
 #[component]
-fn RecipeEditor() -> Element {
-    let mut title = use_signal(String::new);
-    let ingredients = use_signal(blank_sections);
-    let steps = use_signal(blank_sections);
+pub(crate) fn EditRecipe(id: i64) -> Element {
+    rsx! { EditRecipeContent { key: "{id}", id } }
+}
+
+#[component]
+fn EditRecipeContent(id: i64) -> Element {
+    let recipe = use_server_future(move || get_recipe(id))?;
+    rsx! {
+        document::Title { "Lavemill · Edit recipe" }
+        main { id: "main", class: "dashboard recipes-page", tabindex: "-1",
+            Link { to: Route::RecipeDetail { id }, "Back to recipe" }
+            h1 { "Edit recipe" }
+            match recipe.read().as_ref() {
+                Some(Ok(Some(recipe))) => rsx! {
+                    RecipeEditor { target: EditTarget { id, revision: recipe.revision }, initial: recipe.contents.clone() }
+                },
+                Some(Ok(None)) => rsx! { p { "Recipe not found." } },
+                Some(Err(_)) => rsx! { p { role: "alert", "Could not load this recipe. Reload to try again." } },
+                None => rsx! { p { "Loading recipe…" } },
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct EditTarget {
+    id: i64,
+    revision: i64,
+}
+
+#[component]
+fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> Element {
+    let (mut title, ingredients, steps) = use_hook(|| {
+        let (title, ingredients, steps) = match initial {
+            Some(recipe) => (
+                recipe.title,
+                edit_sections(recipe.ingredients, |ingredient| EntryFields {
+                    text: ingredient.name,
+                    detail: ingredient.quantity.unwrap_or_default(),
+                }),
+                edit_sections(recipe.steps, |step| EntryFields {
+                    text: step.instructions,
+                    detail: step.note.unwrap_or_default(),
+                }),
+            ),
+            None => (String::new(), blank_sections(), blank_sections()),
+        };
+        (
+            Signal::new(title),
+            Signal::new(ingredients),
+            Signal::new(steps),
+        )
+    });
     let mut pending = use_signal(|| false);
     let mut error = use_signal(String::new);
+    let mut conflict = use_signal(|| false);
     let navigator = use_navigator();
     rsx! {
         form { class: "recipe-editor", onsubmit: move |event| {
@@ -113,6 +188,7 @@ fn RecipeEditor() -> Element {
             }
             pending.set(true);
             error.set(String::new());
+            conflict.set(false);
             let draft = RecipeContents {
                 title: title(),
                 ingredients: contents(&ingredients.read(), |fields| Ingredient {
@@ -125,9 +201,17 @@ fn RecipeEditor() -> Element {
                 }),
             };
             spawn(async move {
-                match create_recipe(draft).await {
+                let result = match target {
+                    Some(target) => update_recipe(target.id, target.revision, draft).await,
+                    None => create_recipe(draft).await,
+                };
+                match result {
                     Ok(SaveRecipe::Saved(id)) => { navigator.replace(Route::RecipeDetail { id }); }
                     Ok(SaveRecipe::Invalid(message)) => error.set(message),
+                    Ok(SaveRecipe::Conflict) => {
+                        conflict.set(true);
+                        error.set("Someone saved a newer version. Your draft is still here.".into());
+                    }
                     Err(_) => error.set("Could not save the recipe. Try again.".into()),
                 }
                 pending.set(false);
@@ -138,6 +222,11 @@ fn RecipeEditor() -> Element {
                 EditSections { sections: ingredients, ingredients: true }
                 EditSections { sections: steps, ingredients: false }
                 if !error().is_empty() { p { class: "form-error", role: "alert", {error()} } }
+                if conflict() {
+                    if let Some(target) = target {
+                        Link { to: Route::RecipeDetail { id: target.id }, new_tab: true, "View latest recipe in a new tab" }
+                    }
+                }
                 button { class: "primary-button", r#type: "submit", "Save recipe" }
             }
         }
