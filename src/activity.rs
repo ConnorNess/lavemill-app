@@ -12,8 +12,13 @@ struct ActivitySnapshot {
 struct ActivityRow {
     member_id: i64,
     name: String,
-    plex_status: Option<String>,
-    steam_game: Option<String>,
+    activities: Vec<ActivityItem>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ActivityItem {
+    provider: String,
+    status: String,
 }
 
 #[get("/api/activity")]
@@ -64,9 +69,20 @@ fn activity_rows(
     members
         .iter()
         .filter_map(|member| {
-            let plex_status = plex_status(member.profile_id, sessions);
-            let steam_game = member.steam_id.and_then(|id| games.get(&id).cloned());
-            if plex_status.is_none() && steam_game.is_none() {
+            let mut activities = Vec::with_capacity(3);
+            if let Some(status) = plex_status(member.profile_id, sessions) {
+                activities.push(ActivityItem {
+                    provider: "Plex".into(),
+                    status,
+                });
+            }
+            if let Some(game) = member.steam_id.and_then(|id| games.get(&id).cloned()) {
+                activities.push(ActivityItem {
+                    provider: "Steam".into(),
+                    status: format!("Playing {game}"),
+                });
+            }
+            if activities.is_empty() {
                 return None;
             }
             let name = if members
@@ -82,8 +98,7 @@ fn activity_rows(
             Some(ActivityRow {
                 member_id: member.id,
                 name,
-                plex_status,
-                steam_game,
+                activities,
             })
         })
         .collect()
@@ -154,7 +169,7 @@ fn plex_status(
 }
 
 #[component]
-pub(super) fn ActivityCard() -> Element {
+pub(super) fn ActivitySection() -> Element {
     let snapshot = use_signal(|| None::<ActivitySnapshot>);
     #[cfg(target_arch = "wasm32")]
     use_future(move || {
@@ -175,30 +190,39 @@ pub(super) fn ActivityCard() -> Element {
     };
 
     rsx! {
-        section { class: "dashboard-card activity-card", aria_labelledby: "user-activity-heading",
-            div { class: "card-heading",
-                h2 { class: "card-heading-copy", id: "user-activity-heading", "User Activity" }
+        section { class: "activity-section", aria_labelledby: "user-activity-heading",
+            div { class: "activity-heading",
+                h2 { id: "user-activity-heading", "Activity" }
+                span { class: "activity-live-count", "{snapshot.rows.len()} active" }
             }
-            div { class: "card-body",
-                ul { class: "activity-list",
-                    for row in &snapshot.rows {
-                        li { key: "{row.member_id}",
-                            strong { "{row.name}" }
-                            div {
-                                if let Some(status) = &row.plex_status {
-                                    span { class: "activity-status",
-                                        crate::Icon { kind: "Plex" }
-                                        span {
-                                            span { class: "sr-only", "Plex " }
-                                            "{status}"
+            ul { class: "activity-list",
+                for row in &snapshot.rows {
+                    li { class: "activity-person", key: "{row.member_id}",
+                        strong { class: "activity-person-name", "{row.name}" }
+                        ul { class: "activity-stream", aria_label: "{row.name} activity",
+                            for activity in &row.activities {
+                                li { class: "activity-item",
+                                    if activity.provider == "Plex" {
+                                        span { class: "activity-provider activity-provider-plex",
+                                            crate::Icon { kind: "Plex" }
+                                            "Plex"
                                         }
                                     }
-                                }
-                                if let Some(game) = &row.steam_game {
-                                    span { class: "activity-status",
-                                        img { src: STEAM_ICON, alt: "Steam" }
-                                        span { "Playing {game}" }
+                                    if activity.provider == "Steam" {
+                                        span { class: "activity-provider activity-provider-steam",
+                                            img { src: STEAM_ICON, alt: "" }
+                                            "Steam"
+                                        }
                                     }
+                                    if activity.provider != "Plex" && activity.provider != "Steam" {
+                                        span { class: "activity-provider activity-provider-other",
+                                            span { class: "activity-provider-initial", aria_hidden: "true",
+                                                "{activity.provider.chars().next().unwrap_or(' ')}"
+                                            }
+                                            "{activity.provider}"
+                                        }
+                                    }
+                                    span { class: "activity-description", "{activity.status}" }
                                 }
                             }
                         }
@@ -253,19 +277,17 @@ mod tests {
         }];
         let games = HashMap::from([(steam_id, "Hades II".into())]);
         let both = activity_rows(&members, Some(&sessions), &games);
-        assert_eq!(both[0].plex_status.as_deref(), Some("Watching The Odyssey"));
-        assert_eq!(both[0].steam_game.as_deref(), Some("Hades II"));
+        assert_eq!(both[0].activities.len(), 2);
+        assert_eq!(both[0].activities[0].status, "Watching The Odyssey");
+        assert_eq!(both[0].activities[1].status, "Playing Hades II");
 
         let plex_only = activity_rows(&members, Some(&sessions), &HashMap::new());
-        assert_eq!(
-            plex_only[0].plex_status.as_deref(),
-            Some("Watching The Odyssey")
-        );
-        assert_eq!(plex_only[0].steam_game, None);
+        assert_eq!(plex_only[0].activities.len(), 1);
+        assert_eq!(plex_only[0].activities[0].status, "Watching The Odyssey");
 
         let steam_only = activity_rows(&members, None, &games);
-        assert_eq!(steam_only[0].plex_status, None);
-        assert_eq!(steam_only[0].steam_game.as_deref(), Some("Hades II"));
+        assert_eq!(steam_only[0].activities.len(), 1);
+        assert_eq!(steam_only[0].activities[0].status, "Playing Hades II");
     }
 
     #[test]
