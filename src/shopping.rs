@@ -1,4 +1,4 @@
-use super::{CardHeading, Route, StatusMark};
+use super::{CardHeading, Route};
 use crate::shopping_data::{change_shopping, list_shopping, ShoppingChange, ShoppingItem};
 use dioxus::prelude::*;
 
@@ -48,42 +48,55 @@ impl ShoppingActions {
     }
 }
 
+fn use_shopping_actions() -> ShoppingActions {
+    ShoppingActions {
+        items: use_signal(|| None),
+        pending: use_signal(|| false),
+        refresh_failed: use_signal(|| false),
+    }
+}
+
 #[component]
 pub(super) fn ShoppingCard() -> Element {
-    let data = use_server_future(list_shopping)?;
-    let data = data.read();
+    let initial = use_server_future(list_shopping)?;
+    let actions = use_shopping_actions();
+    use_context_provider(|| actions);
+    let initial = initial.read();
+    let refreshed = actions.items.read();
+    let items = refreshed
+        .as_ref()
+        .or_else(|| initial.as_ref()?.as_ref().ok());
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "shopping-title",
             CardHeading { icon: "shopping", title: "Shopping List", id: "shopping-title",
-                count: match data.as_ref() {
-                    Some(Ok(items)) => format!("{} to get", items.iter().filter(|item| !item.checked).count()),
+                count: match items {
+                    Some(items) => format!("{} to get", items.iter().filter(|item| !item.checked).count()),
                     _ => String::new(),
                 }
             }
             div { class: "card-body",
-                match data.as_ref() {
-                    Some(Ok(items)) => rsx! {
-                        if !items.iter().any(|item| !item.checked) {
-                            p { class: "shopping-empty", "Nothing to pick up." }
-                        }
-                        ul { class: "item-list shopping-list",
-                            for item in items.iter().filter(|item| !item.checked).take(4) {
-                                PreviewRow { key: "{item.id}", item: item.clone() }
-                            }
-                        }
-                        if let Some(item) = items.iter().find(|item| item.checked) {
-                            h3 { class: "list-divider", "Already picked up" }
-                            ul { class: "item-list shopping-list",
-                                PreviewRow { item: item.clone() }
-                            }
-                        }
-                    },
-                    Some(Err(_)) => rsx! {
-                        p { class: "form-error", role: "alert", "Could not load the shopping list." }
-                    },
-                    None => rsx! {
-                        p { class: "shopping-empty", role: "status", "Loading shopping list…" }
+                if (actions.refresh_failed)() {
+                    p { class: "form-error", role: "alert", "Your change was saved, but the shopping list could not refresh. Reload the page to try again." }
+                }
+                if let Some(items) = items {
+                    if !items.iter().any(|item| !item.checked) {
+                        p { class: "shopping-empty", "Nothing to pick up." }
                     }
+                    ul { class: "item-list shopping-list",
+                        for item in items.iter().filter(|item| !item.checked).take(4) {
+                            PreviewRow { key: "{item.id}", item: item.clone() }
+                        }
+                    }
+                    if let Some(item) = items.iter().find(|item| item.checked) {
+                        h3 { class: "list-divider", "Already picked up" }
+                        ul { class: "item-list shopping-list",
+                            PreviewRow { key: "{item.id}", item: item.clone() }
+                        }
+                    }
+                } else if matches!(initial.as_ref(), Some(Err(_))) {
+                    p { class: "form-error", role: "alert", "Could not load the shopping list." }
+                } else {
+                    p { class: "shopping-empty", role: "status", "Loading shopping list…" }
                 }
             }
             Link { class: "card-page-link", to: Route::Shopping {}, "View shopping list" }
@@ -93,12 +106,14 @@ pub(super) fn ShoppingCard() -> Element {
 
 #[component]
 fn PreviewRow(item: ShoppingItem) -> Element {
+    let error = use_signal(String::new);
     rsx! {
         li { class: if item.checked { "list-row is-done" } else { "list-row" },
-            StatusMark { done: item.checked }
+            ShoppingCheckbox { item: item.clone(), error }
             div { class: "row-copy",
                 span { class: "row-title", "{item.name}" }
                 if let Some(quantity) = item.quantity { span { class: "row-note", "{quantity}" } }
+                if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
             }
         }
     }
@@ -108,11 +123,7 @@ fn PreviewRow(item: ShoppingItem) -> Element {
 pub(super) fn Shopping() -> Element {
     let initial = use_server_future(list_shopping)?;
     let editing = use_signal(|| None::<i64>);
-    let actions = ShoppingActions {
-        items: use_signal(|| None),
-        pending: use_signal(|| false),
-        refresh_failed: use_signal(|| false),
-    };
+    let actions = use_shopping_actions();
     use_context_provider(|| actions);
     let initial = initial.read();
     let refreshed = actions.items.read();
@@ -220,7 +231,6 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<i64>>) -> Elem
     let actions = use_context::<ShoppingActions>();
     let mut removed = use_context::<Signal<Option<RemovedItem>>>();
     let mut error = use_signal(String::new);
-    let mut checkbox_revision = use_signal(|| 0);
     let id = item.id;
     let active_editor = editing();
     let removed_item = RemovedItem {
@@ -247,23 +257,7 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<i64>>) -> Elem
             if active_editor == Some(id) {
                 ShoppingEditForm { item: item.clone(), editing, on_remove: remove.clone() }
             } else {
-                label { class: "shopping-check",
-                    input { key: "{checkbox_revision}", r#type: "checkbox", checked: item.checked, disabled: actions.disabled(),
-                        aria_label: if item.checked { format!("Mark {} as still to get", item.name) } else { format!("Mark {} as picked up", item.name) },
-                        onchange: move |event| {
-                            let checked = event.checked();
-                            async move {
-                                error.set(String::new());
-                                if let Err(message) = actions.save(ShoppingChange::SetChecked { id, checked }).await {
-                                    checkbox_revision += 1;
-                                    error.set(message);
-                                } else if (actions.refresh_failed)() {
-                                    checkbox_revision += 1;
-                                }
-                            }
-                        }
-                    }
-                }
+                ShoppingCheckbox { item: item.clone(), error }
                 div { class: "row-copy",
                     span { class: "row-title", "{item.name}" }
                     if let Some(quantity) = item.quantity { span { class: "row-note", "{quantity}" } }
@@ -274,6 +268,34 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<i64>>) -> Elem
                     disabled: actions.disabled(), onclick: remove, "×" }
             }
             if !error().is_empty() { p { class: "form-error shopping-form-message", role: "alert", "{error}" } }
+        }
+    }
+}
+
+#[component]
+fn ShoppingCheckbox(item: ShoppingItem, mut error: Signal<String>) -> Element {
+    let actions = use_context::<ShoppingActions>();
+    let mut checkbox_revision = use_signal(|| 0);
+    let id = item.id;
+    rsx! {
+        label { class: "shopping-check",
+            for revision in [checkbox_revision()] {
+                input { key: "{revision}", r#type: "checkbox", checked: item.checked, disabled: actions.disabled(),
+                    aria_label: if item.checked { format!("Mark {} as still to get", item.name) } else { format!("Mark {} as picked up", item.name) },
+                    onchange: move |event| {
+                        let checked = event.checked();
+                        async move {
+                            error.set(String::new());
+                            if let Err(message) = actions.save(ShoppingChange::SetChecked { id, checked }).await {
+                                checkbox_revision += 1;
+                                error.set(message);
+                            } else if (actions.refresh_failed)() {
+                                checkbox_revision += 1;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

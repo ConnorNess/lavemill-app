@@ -180,22 +180,6 @@ fn CardHeading(
     }
 }
 
-// Read-only status indicators rather than interactive checkboxes.
-#[component]
-fn StatusMark(done: bool) -> Element {
-    let class = if done {
-        "status-mark is-checked"
-    } else {
-        "status-mark"
-    };
-    rsx! {
-        span { class, aria_hidden: "true",
-            if done { Icon { kind: "check" } }
-        }
-        span { class: "sr-only", if done { "Completed: " } else { "Open: " } }
-    }
-}
-
 #[component]
 fn Icon(kind: &'static str) -> Element {
     let path = match kind {
@@ -205,7 +189,6 @@ fn Icon(kind: &'static str) -> Element {
         "calendar" => {
             "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2M7 14h2M13 14h2M7 18h2"
         }
-        "check" => "m5 12 4 4L19 6",
         _ => "",
     };
     rsx! {

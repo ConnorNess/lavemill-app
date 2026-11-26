@@ -60,9 +60,6 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .row-title { font-size: 1rem; font-weight: 500; line-height: 1.45; }
 .row-note { margin-top: 5px; font-size: 0.875rem; color: var(--muted); }
 .overdue { color: #9a5439; }
-.status-mark { width: 19px; height: 19px; margin-top: 3px; flex-shrink: 0; border: 1.5px solid #bac6cc; border-radius: 6px; }
-.status-mark.is-checked { border-color: #c6e0ed; background: var(--blue); color: var(--blue-ink); }
-.status-mark svg { width: 16px; height: 16px; }
 .is-done .row-title { color: var(--muted); text-decoration: line-through; text-decoration-color: #a3aeb1; }
 .assignee { flex-shrink: 0; margin-top: 2px; padding: 2px 8px; border: 1px solid #e5e9e7; border-radius: 6px; font-size: 0.75rem; color: #59696b; background: #f6f8f7; }
 .shopping-list .list-row { padding-block: 14px; }
