@@ -1,6 +1,6 @@
 use crate::accounts::database_error;
 use crate::shopping_data::{ShoppingChange, ShoppingItem};
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{params, Connection, Transaction, TransactionBehavior};
 
 const RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;
 
@@ -16,12 +16,48 @@ pub fn apply(
     access(db, |db, now| apply_change(db, now, actor, change)).map_err(database_error)
 }
 
+pub(crate) fn add_missing<'a>(
+    tx: &Transaction<'_>,
+    actor: i64,
+    items: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+) -> rusqlite::Result<usize> {
+    access_at(tx, current_time(tx)?, |db, _| {
+        let mut matching = db.prepare(
+            "SELECT EXISTS (
+                SELECT 1 FROM shopping_items
+                WHERE completed_at IS NULL AND removed_at IS NULL
+                  AND name = ?1 COLLATE NOCASE AND quantity IS NULLIF(?2, '')
+            )",
+        )?;
+        let mut added = 0;
+        for (name, quantity) in items {
+            let name = name.trim();
+            let quantity = quantity.unwrap_or_default().trim();
+            if !matching.query_row(params![name, quantity], |row| row.get::<_, bool>(0))? {
+                added += insert_item(db, actor, name, quantity)?;
+            }
+        }
+        Ok(added)
+    })
+}
+
+fn current_time(db: &Connection) -> rusqlite::Result<i64> {
+    db.query_row("SELECT unixepoch()", [], |row| row.get(0))
+}
+
+fn insert_item(db: &Connection, actor: i64, name: &str, quantity: &str) -> rusqlite::Result<usize> {
+    db.execute(
+        "INSERT INTO shopping_items (name, quantity, created_by) VALUES (?1, NULLIF(?2, ''), ?3)",
+        params![name, quantity, actor],
+    )
+}
+
 fn access<T>(
     db: &mut Connection,
     operation: impl FnOnce(&Connection, i64) -> rusqlite::Result<T>,
 ) -> rusqlite::Result<T> {
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let now = tx.query_row("SELECT unixepoch()", [], |row| row.get(0))?;
+    let now = current_time(&tx)?;
     let result = access_at(&tx, now, operation)?;
     tx.commit()?;
     Ok(result)
@@ -66,11 +102,7 @@ fn apply_change(
             if name.trim().is_empty() {
                 return Ok(Some("Enter an item name."));
             }
-            db.execute(
-                "INSERT INTO shopping_items (name, quantity, created_by)
-                 VALUES (?1, NULLIF(?2, ''), ?3)",
-                params![name.trim(), quantity.trim(), actor],
-            )
+            insert_item(db, actor, name.trim(), quantity.trim())
         }
         ShoppingChange::Edit { id, name, quantity } => {
             if name.trim().is_empty() {
