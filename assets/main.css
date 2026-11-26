@@ -38,6 +38,11 @@ svg { display: block; flex-shrink: 0; }
 @media (max-width: 680px) {
     .users-grid { grid-template-columns: minmax(0, 1fr); }
 }
+.homelab-shortcuts { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+.homelab-shortcut { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px 6px 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 0.875rem; font-weight: 600; text-decoration: none; }
+.homelab-shortcut:hover { background: #eef6fa; color: var(--blue-ink); }
+.homelab-shortcut .card-icon { width: 32px; height: 32px; border-radius: 8px; }
+.homelab-shortcut .card-icon svg { width: 18px; height: 18px; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 22px; }
 .dashboard-card { min-width: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 4px 18px #283d4813; }
 .card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 24px 22px; border-bottom: 1px solid var(--line); }

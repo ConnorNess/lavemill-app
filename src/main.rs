@@ -8,6 +8,7 @@ mod calendar;
 use calendar::{Calendar, CalendarCard};
 #[cfg(feature = "server")]
 mod calendar_server;
+mod homelab;
 #[cfg(feature = "server")]
 mod household_time;
 mod users;
@@ -152,6 +153,7 @@ fn Home() -> Element {
         main { id: "main", class: "dashboard", tabindex: "-1",
             document::Title { "Lavemill · Home" }
             h1 { class: "sr-only", "Home" }
+            homelab::Shortcuts {}
             div { class: "dashboard-grid",
                 TasksCard {}
                 ShoppingCard {}
@@ -189,6 +191,13 @@ fn Icon(kind: &'static str) -> Element {
         "calendar" => {
             "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2M7 14h2M13 14h2M7 18h2"
         }
+        "Seerr" => {
+            "M21 12s-3.5 6-9 6-9-6-9-6 3.5-6 9-6 9 6 9 6ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+        }
+        "Plex" => "m9 5 6 7-6 7",
+        "Komga" => "M12 6c-3-2-6-2-9-1v13c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1Zm0 0v13",
+        "Foundry" => "m12 3 8 5v8l-8 5-8-5V8l8-5Zm0 0 5 13H7l5-13ZM4 8l3 8 5 5 5-5 3-8",
+        "BookStack" => "M4 5h14v4H4zM6 9h14v5H6zM4 14h14v5H4z",
         _ => "",
     };
     rsx! {

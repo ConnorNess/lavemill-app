@@ -23,6 +23,23 @@ next time someone loads Home or reads or updates the shopping list.
 `docker compose up` starts the app and the SQLite viewer. Use
 `docker compose up app` to start just the app.
 
+### Homelab shortcuts
+
+Set the full URLs the household opens in a browser in your local Compose
+`.env` file or the server environment.
+
+| Service | Setting |
+| --- | --- |
+| Seerr | `LAVEMILL_SEERR_URL` |
+| Plex | `LAVEMILL_PLEX_URL` |
+| Komga | `LAVEMILL_KOMGA_URL` |
+| Foundry | `LAVEMILL_FOUNDRY_URL` |
+| BookStack | `LAVEMILL_BOOKSTACK_URL` |
+
+Each valid HTTP or HTTPS URL adds an icon to the signed-in homepage. Each icon
+opens its service in a new tab. Leave a setting blank to hide its icon. After
+editing the Compose `.env` file, apply the settings with `docker compose up -d app`.
+
 ## Admin
 
 Create once on the Compose database.
