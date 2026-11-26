@@ -8,25 +8,6 @@ pub(super) struct RemovedItem {
     name: String,
 }
 
-#[derive(Clone, PartialEq)]
-struct EditDraft {
-    id: i64,
-    name: String,
-    quantity: String,
-    error: String,
-}
-
-impl EditDraft {
-    fn from_item(item: &ShoppingItem) -> Self {
-        Self {
-            id: item.id,
-            name: item.name.clone(),
-            quantity: item.quantity.clone().unwrap_or_default(),
-            error: String::new(),
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct ShoppingActions {
     items: Signal<Option<Vec<ShoppingItem>>>,
@@ -126,7 +107,7 @@ fn PreviewRow(item: ShoppingItem) -> Element {
 #[component]
 pub(super) fn Shopping() -> Element {
     let initial = use_server_future(list_shopping)?;
-    let editing = use_signal(|| None::<EditDraft>);
+    let editing = use_signal(|| None::<i64>);
     let actions = ShoppingActions {
         items: use_signal(|| None),
         pending: use_signal(|| false),
@@ -175,11 +156,7 @@ pub(super) fn Shopping() -> Element {
 }
 
 #[component]
-fn ShoppingGroup(
-    checked: bool,
-    items: Vec<ShoppingItem>,
-    editing: Signal<Option<EditDraft>>,
-) -> Element {
+fn ShoppingGroup(checked: bool, items: Vec<ShoppingItem>, editing: Signal<Option<i64>>) -> Element {
     let title = if checked { "Picked up" } else { "To get" };
     rsx! {
         section { class: "shopping-group", aria_label: title,
@@ -239,19 +216,13 @@ fn QuickAdd() -> Element {
 }
 
 #[component]
-fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<EditDraft>>) -> Element {
+fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<i64>>) -> Element {
     let actions = use_context::<ShoppingActions>();
     let mut removed = use_context::<Signal<Option<RemovedItem>>>();
     let mut error = use_signal(String::new);
     let mut checkbox_revision = use_signal(|| 0);
     let id = item.id;
-    let draft = editing
-        .read()
-        .as_ref()
-        .filter(|draft| draft.id == id)
-        .cloned();
-    let editing_other = editing.read().is_some();
-    let original_draft = EditDraft::from_item(&item);
+    let active_editor = editing();
     let removed_item = RemovedItem {
         id,
         name: item.name.clone(),
@@ -262,7 +233,7 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<EditDraft>>) -
             error.set(String::new());
             match actions.save(ShoppingChange::Remove { id }).await {
                 Ok(()) => {
-                    if editing.peek().as_ref().is_some_and(|draft| draft.id == id) {
+                    if *editing.peek() == Some(id) {
                         editing.set(None);
                     }
                     removed.set(Some(removed_item));
@@ -273,45 +244,8 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<EditDraft>>) -
     };
     rsx! {
         li { class: if item.checked { "shopping-item-row is-done" } else { "shopping-item-row" },
-            if let Some(draft) = draft {
-                form { class: "shopping-edit-form", aria_label: "Edit {item.name}",
-                    onsubmit: move |event| {
-                        event.prevent_default();
-                        let draft = editing.peek().clone();
-                        async move {
-                            if let Some(draft) = draft {
-                                let change = ShoppingChange::Edit { id, name: draft.name, quantity: draft.quantity };
-                                match actions.save(change).await {
-                                    Ok(()) => editing.set(None),
-                                    Err(message) => {
-                                        if let Some(draft) = editing.write().as_mut() { draft.error = message; }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    div { class: "shopping-form-field",
-                        label { r#for: "edit-name-{id}", "Item" }
-                        input { id: "edit-name-{id}", name: "name", required: true, value: "{draft.name}", readonly: actions.disabled(),
-                            oninput: move |event| {
-                                if let Some(draft) = editing.write().as_mut() { draft.name = event.value(); draft.error.clear(); }
-                            }
-                        }
-                    }
-                    div { class: "shopping-form-field",
-                        label { r#for: "edit-quantity-{id}", "Quantity (optional)" }
-                        input { id: "edit-quantity-{id}", name: "quantity", value: "{draft.quantity}", readonly: actions.disabled(),
-                            oninput: move |event| { if let Some(draft) = editing.write().as_mut() { draft.quantity = event.value(); } }
-                        }
-                    }
-                    if !draft.error.is_empty() { p { class: "form-error shopping-form-message", role: "alert", "{draft.error}" } }
-                    div { class: "shopping-edit-actions",
-                        button { class: "primary-button", r#type: "submit", disabled: actions.disabled(), "Save" }
-                        button { class: "secondary-button", r#type: "button", disabled: (actions.pending)(), onclick: move |_| editing.set(None), "Cancel" }
-                        button { class: "remove-item-button", r#type: "button", aria_label: "Remove {item.name}",
-                            disabled: actions.disabled(), onclick: remove.clone(), "×" }
-                    }
-                }
+            if active_editor == Some(id) {
+                ShoppingEditForm { item: item.clone(), editing, on_remove: remove.clone() }
             } else {
                 label { class: "shopping-check",
                     input { key: "{checkbox_revision}", r#type: "checkbox", checked: item.checked, disabled: actions.disabled(),
@@ -334,12 +268,61 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<EditDraft>>) -
                     span { class: "row-title", "{item.name}" }
                     if let Some(quantity) = item.quantity { span { class: "row-note", "{quantity}" } }
                 }
-                button { class: "edit-item-button", r#type: "button", disabled: editing_other || actions.disabled(), aria_label: "Edit {item.name}",
-                    onclick: move |_| editing.set(Some(original_draft.clone())), "Edit" }
+                button { class: "edit-item-button", r#type: "button", disabled: active_editor.is_some() || actions.disabled(), aria_label: "Edit {item.name}",
+                    onclick: move |_| editing.set(Some(id)), "Edit" }
                 button { class: "remove-item-button", r#type: "button", aria_label: "Remove {item.name}",
                     disabled: actions.disabled(), onclick: remove, "×" }
             }
             if !error().is_empty() { p { class: "form-error shopping-form-message", role: "alert", "{error}" } }
+        }
+    }
+}
+
+#[component]
+fn ShoppingEditForm(
+    item: ShoppingItem,
+    mut editing: Signal<Option<i64>>,
+    on_remove: EventHandler<MouseEvent>,
+) -> Element {
+    let actions = use_context::<ShoppingActions>();
+    let id = item.id;
+    let mut name = use_signal(|| item.name.clone());
+    let mut quantity = use_signal(|| item.quantity.unwrap_or_default());
+    let mut error = use_signal(String::new);
+    rsx! {
+        form { class: "shopping-edit-form", aria_label: "Edit {item.name}",
+            onsubmit: move |event| {
+                event.prevent_default();
+                async move {
+                    if *editing.peek() != Some(id) || actions.disabled() { return; }
+                    let change = ShoppingChange::Edit { id, name: name(), quantity: quantity() };
+                    match actions.save(change).await {
+                        Ok(()) => editing.set(None),
+                        Err(message) => error.set(message),
+                    }
+                }
+            },
+            div { class: "shopping-form-field",
+                label { r#for: "edit-name-{id}", "Item" }
+                input { id: "edit-name-{id}", name: "name", required: true, value: "{name}", readonly: actions.disabled(),
+                    oninput: move |event| {
+                        name.set(event.value()); error.set(String::new());
+                    }
+                }
+            }
+            div { class: "shopping-form-field",
+                label { r#for: "edit-quantity-{id}", "Quantity (optional)" }
+                input { id: "edit-quantity-{id}", name: "quantity", value: "{quantity}", readonly: actions.disabled(),
+                    oninput: move |event| { quantity.set(event.value()) }
+                }
+            }
+            if !error().is_empty() { p { class: "form-error shopping-form-message", role: "alert", {error()} } }
+            div { class: "shopping-edit-actions",
+                button { class: "primary-button", r#type: "submit", disabled: actions.disabled(), "Save" }
+                button { class: "secondary-button", r#type: "button", disabled: (actions.pending)(), onclick: move |_| editing.set(None), "Cancel" }
+                button { class: "remove-item-button", r#type: "button", aria_label: "Remove {item.name}",
+                    disabled: actions.disabled(), onclick: move |event| on_remove.call(event), "×" }
+            }
         }
     }
 }

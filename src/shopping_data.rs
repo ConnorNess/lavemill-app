@@ -34,7 +34,7 @@ pub(crate) enum ShoppingChange {
 
 #[get("/api/shopping")]
 pub(crate) async fn list_shopping() -> Result<Vec<ShoppingItem>, ServerFnError> {
-    require_member()?;
+    crate::auth::require_member()?;
     crate::auth::server::run_blocking(|| {
         crate::shopping_storage::list(&mut crate::auth::server::connection()?)
     })
@@ -46,19 +46,11 @@ pub(crate) async fn list_shopping() -> Result<Vec<ShoppingItem>, ServerFnError> 
 pub(crate) async fn change_shopping(
     change: ShoppingChange,
 ) -> Result<Option<String>, ServerFnError> {
-    let actor = require_member()?;
+    let actor = crate::auth::require_member()?.id;
     crate::auth::server::run_blocking(move || {
         crate::shopping_storage::apply(&mut crate::auth::server::connection()?, actor, change)
     })
     .await
     .map(|message| message.map(str::to_owned))
     .map_err(ServerFnError::new)
-}
-
-#[cfg(feature = "server")]
-fn require_member() -> Result<i64, ServerFnError> {
-    dioxus::fullstack::FullstackContext::current()
-        .and_then(|context| context.extension::<crate::auth::Viewer>())
-        .map(|viewer| viewer.id)
-        .ok_or_else(|| ServerFnError::new("Sign in to continue."))
 }

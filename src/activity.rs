@@ -9,6 +9,7 @@ struct ActivitySnapshot {
 
 #[derive(Deserialize, Serialize)]
 struct ActivityRow {
+    member_id: i64,
     name: String,
     status: String,
     steam_game: Option<String>,
@@ -62,6 +63,7 @@ fn activity_rows(
     members
         .iter()
         .map(|member| ActivityRow {
+            member_id: member.id,
             name: if members
                 .iter()
                 .filter(|other| member.first.eq_ignore_ascii_case(&other.first))
@@ -80,6 +82,7 @@ fn activity_rows(
 
 #[cfg(feature = "server")]
 struct Member {
+    id: i64,
     first: String,
     last: String,
     profile_id: Option<i64>,
@@ -91,7 +94,7 @@ fn load_members() -> Result<Vec<Member>, &'static str> {
     let db = crate::auth::server::connection()?;
     let mut query = db
         .prepare(
-            "SELECT first_name, last_name, plex.external_profile_id, steam.external_profile_id
+            "SELECT first_name, last_name, plex.external_profile_id, steam.external_profile_id, users.id
              FROM users
              LEFT JOIN activity_profile_links AS plex
                ON plex.user_id = users.id AND plex.provider = 'plex'
@@ -103,6 +106,7 @@ fn load_members() -> Result<Vec<Member>, &'static str> {
     let rows = query
         .query_map([], |row| {
             Ok(Member {
+                id: row.get(4)?,
                 first: row.get(0)?,
                 last: row.get(1)?,
                 profile_id: row.get(2)?,
@@ -174,8 +178,8 @@ pub(super) fn ActivityCard() -> Element {
                             p { class: "activity-message", "Plex activity is not configured." }
                         }
                         ul { class: "activity-list",
-                            for (index, row) in snapshot.rows.iter().enumerate() {
-                                li { key: "{index}",
+                            for row in &snapshot.rows {
+                                li { key: "{row.member_id}",
                                     strong { "{row.name}" }
                                     div {
                                         span { "{row.status}" }
@@ -202,9 +206,30 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn keeps_member_identity_when_names_match_and_order_changes() {
+        let member = |id| Member {
+            id,
+            first: "Same".into(),
+            last: "Name".into(),
+            profile_id: None,
+            steam_id: None,
+        };
+        let mut members = [member(1), member(2)];
+        let games = HashMap::new();
+        let before = activity_rows(&members, None, &games);
+        members.reverse();
+        let after = activity_rows(&members, None, &games);
+        assert_eq!(before[0].name, before[1].name);
+        assert_ne!(before[0].member_id, before[1].member_id);
+        assert_eq!(before[0].member_id, after[1].member_id);
+        assert_eq!(before[1].member_id, after[0].member_id);
+    }
+
+    #[test]
     fn pairs_steam_and_plex_activity_and_keeps_either_when_the_other_is_unavailable() {
         let steam_id = 76561198000000001;
         let members = [Member {
+            id: 1,
             first: "Household".into(),
             last: "Member".into(),
             profile_id: Some(101),

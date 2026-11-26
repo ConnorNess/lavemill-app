@@ -239,9 +239,7 @@ async fn reset_password(id: i64, password: String) -> Result<Option<String>, Ser
 
 #[cfg(feature = "server")]
 fn require_admin() -> Result<(), ServerFnError> {
-    let viewer: Option<crate::auth::Viewer> =
-        dioxus::fullstack::FullstackContext::current().and_then(|context| context.extension());
-    if viewer.is_some_and(|viewer| viewer.is_admin) {
+    if crate::auth::request_viewer().is_some_and(|viewer| viewer.is_admin) {
         return Ok(());
     }
     Err(ServerFnError::new("Administrator access required."))
@@ -294,9 +292,7 @@ fn PlexProfileForm(
 ) -> Element {
     let mut saved = use_signal(|| initial);
     let mut selected = use_signal(|| initial);
-    let mut ready = use_signal(|| false);
-    let mut pending = use_signal(|| false);
-    let mut notice = use_signal(|| None);
+    let submission = use_form_submission();
     let profiles = profiles.read();
     let (choices, hint) = match profiles.as_ref() {
         Some(Ok(Some(choices))) => (choices.as_slice(), None),
@@ -309,24 +305,22 @@ fn PlexProfileForm(
     let can_save = selected() != saved();
 
     rsx! {
-        form { class: "reset-form", method: "post", onmounted: move |_| ready.set(true), onsubmit: move |event| {
+        form { class: "reset-form", method: "post", onmounted: move |_| submission.mounted(), onsubmit: move |event| {
             event.prevent_default();
             async move {
-                if pending() || selected() == saved() { return; }
                 let profile_id = selected();
-                pending.set(true);
-                notice.set(None);
+                if profile_id == saved() || !submission.begin() { return; }
                 let result = save_plex_profile(id, profile_id).await;
-                pending.set(false);
+                submission.finish();
                 if matches!(result, Ok(None)) {
                     saved.set(profile_id);
                 }
-                notice.set(Some(form_notice(result, "Plex profile saved.")));
+                submission.report(result, "Plex profile saved.");
             }
         },
             label { r#for: "plex-profile-{id}", "Plex profile" }
             select { id: "plex-profile-{id}", value,
-                disabled: !ready() || pending() || (choices.is_empty() && saved().is_none()),
+                disabled: submission.disabled() || (choices.is_empty() && saved().is_none()),
                 onchange: move |event| selected.set(event.value().parse().ok()),
                 option { value: "", "No Plex profile" }
                 if let Some(id) = missing {
@@ -345,8 +339,8 @@ fn PlexProfileForm(
             if let Some(hint) = hint {
                 p { "{hint}" }
             }
-            button { class: "undo-button", r#type: "submit", disabled: !ready() || pending() || !can_save, "Save Plex profile" }
-            FormNotice { notice: notice() }
+            button { class: "undo-button", r#type: "submit", disabled: submission.disabled() || !can_save, "Save Plex profile" }
+            FormNotice { notice: (submission.notice)() }
         }
     }
 }
@@ -355,37 +349,33 @@ fn PlexProfileForm(
 fn SteamProfileForm(id: i64, initial: Option<String>) -> Element {
     let mut saved = use_signal(|| initial.unwrap_or_default());
     let mut input = use_signal(|| saved());
-    let mut ready = use_signal(|| false);
-    let mut pending = use_signal(|| false);
-    let mut notice = use_signal(|| None);
+    let submission = use_form_submission();
 
     rsx! {
-        form { class: "reset-form", method: "post", onmounted: move |_| ready.set(true), onsubmit: move |event| {
+        form { class: "reset-form", method: "post", onmounted: move |_| submission.mounted(), onsubmit: move |event| {
             event.prevent_default();
             async move {
                 let steam_id = input().trim().to_owned();
-                if pending() || steam_id == saved() { return; }
-                pending.set(true);
-                notice.set(None);
+                if steam_id == saved() || !submission.begin() { return; }
                 let result = save_steam_profile(id, steam_id.clone()).await;
-                pending.set(false);
+                submission.finish();
                 if matches!(result, Ok(None)) {
                     input.set(steam_id.clone());
                     saved.set(steam_id);
                 }
-                notice.set(Some(form_notice(result, "Steam profile saved.")));
+                submission.report(result, "Steam profile saved.");
             }
         },
             label { r#for: "steam-id-{id}", "SteamID64" }
             input { id: "steam-id-{id}", inputmode: "numeric", value: "{input}",
-                aria_describedby: "steam-id-help-{id}", disabled: !ready() || pending(),
+                aria_describedby: "steam-id-help-{id}", disabled: submission.disabled(),
                 oninput: move |event| input.set(event.value()),
             }
             p { id: "steam-id-help-{id}", "Link at the member’s request to share their visible playing activity with the household. Clear the field and save to unlink." }
             button { class: "undo-button", r#type: "submit",
-                disabled: !ready() || pending() || input().trim() == saved(), "Save Steam profile"
+                disabled: submission.disabled() || input().trim() == saved(), "Save Steam profile"
             }
-            FormNotice { notice: notice() }
+            FormNotice { notice: (submission.notice)() }
         }
     }
 }
@@ -407,22 +397,18 @@ fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>)
             .map_or_else(String::new, |user| user.last_name.clone())
     });
     let mut password = use_signal(String::new);
-    let mut ready = use_signal(|| false);
-    let mut pending = use_signal(|| false);
-    let mut notice = use_signal(|| None);
+    let submission = use_form_submission();
 
     rsx! {
-        form { method: "post", onmounted: move |_| ready.set(true), onsubmit: move |event| {
+        form { method: "post", onmounted: move |_| submission.mounted(), onsubmit: move |event| {
             event.prevent_default();
             async move {
-                if pending() { return; }
-                pending.set(true);
-                notice.set(None);
+                if !submission.begin() { return; }
                 let result = match id {
                     Some(id) => edit_user(id, username(), first(), last()).await,
                     None => create_user(username(), first(), last(), password()).await,
                 };
-                pending.set(false);
+                submission.finish();
                 if matches!(result, Ok(None)) {
                     if id.is_none() {
                         username.set(String::new());
@@ -437,7 +423,7 @@ fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>)
                     on_saved.call(());
                 }
                 let success = if id.is_some() { "Details saved." } else { "User added." };
-                notice.set(Some(form_notice(result, success)));
+                submission.report(result, success);
             }
         },
             label { r#for: "{form_id}-username", "Username" }
@@ -452,10 +438,10 @@ fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>)
             if id.is_none() {
                 PasswordField { id: "new-user-password".to_owned(), label: "Password", password }
             }
-            button { class: "primary-button", r#type: "submit", disabled: !ready() || pending(),
+            button { class: "primary-button", r#type: "submit", disabled: submission.disabled(),
                 if id.is_some() { "Save details" } else { "Add user" }
             }
-            FormNotice { notice: notice() }
+            FormNotice { notice: (submission.notice)() }
         }
     }
 }
@@ -463,20 +449,16 @@ fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>)
 #[component]
 fn PasswordReset(id: i64, is_admin: bool) -> Element {
     let mut password = use_signal(String::new);
-    let mut ready = use_signal(|| false);
-    let mut notice = use_signal(|| None);
-    let mut pending = use_signal(|| false);
+    let submission = use_form_submission();
     let navigator = use_navigator();
     rsx! {
-        form { class: "reset-form", method: "post", onmounted: move |_| ready.set(true),
+        form { class: "reset-form", method: "post", onmounted: move |_| submission.mounted(),
             onsubmit: move |event| {
                 event.prevent_default();
                 async move {
-                    if pending() { return; }
-                    pending.set(true);
-                    notice.set(None);
+                    if !submission.begin() { return; }
                     let result = reset_password(id, password()).await;
-                    pending.set(false);
+                    submission.finish();
                     if matches!(result, Ok(None)) {
                         password.set(String::new());
                         if is_admin {
@@ -484,12 +466,12 @@ fn PasswordReset(id: i64, is_admin: bool) -> Element {
                             return;
                         }
                     }
-                    notice.set(Some(form_notice(result, "Password reset. All sessions for this user were signed out.")));
+                    submission.report(result, "Password reset. All sessions for this user were signed out.");
                 }
             },
             PasswordField { id: format!("reset-password-{id}"), label: "New password", password }
-            button { class: "undo-button", r#type: "submit", disabled: !ready() || pending(), "Reset password" }
-            FormNotice { notice: notice() }
+            button { class: "undo-button", r#type: "submit", disabled: submission.disabled(), "Reset password" }
+            FormNotice { notice: (submission.notice)() }
         }
     }
 }
@@ -501,6 +483,48 @@ fn PasswordField(id: String, label: &'static str, mut password: Signal<String>) 
         input { id: "{id}", name: "password", r#type: "password", autocomplete: "new-password",
             value: "{password}", required: true,
             oninput: move |event| password.set(event.value()) }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct FormSubmission {
+    ready: Signal<bool>,
+    pending: Signal<bool>,
+    notice: Signal<Option<(bool, String)>>,
+}
+
+fn use_form_submission() -> FormSubmission {
+    FormSubmission {
+        ready: use_signal(|| false),
+        pending: use_signal(|| false),
+        notice: use_signal(|| None),
+    }
+}
+
+impl FormSubmission {
+    fn mounted(mut self) {
+        self.ready.set(true);
+    }
+
+    fn disabled(self) -> bool {
+        !(self.ready)() || (self.pending)()
+    }
+
+    fn begin(mut self) -> bool {
+        if self.disabled() {
+            return false;
+        }
+        self.pending.set(true);
+        self.notice.set(None);
+        true
+    }
+
+    fn finish(mut self) {
+        self.pending.set(false);
+    }
+
+    fn report(mut self, result: Result<Option<String>, ServerFnError>, success: &str) {
+        self.notice.set(Some(form_notice(result, success)));
     }
 }
 
