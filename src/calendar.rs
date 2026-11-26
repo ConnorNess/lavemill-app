@@ -308,33 +308,33 @@ fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
         };
     };
     let selected = selected_day().unwrap_or_else(|| data.date.clone());
-    let week_href = period_route(Some("week".into()), selected.clone()).to_string();
-    let month_href = period_route(Some("month".into()), selected.clone()).to_string();
     let view = if data.month { "month" } else { "week" };
     rsx! {
         div { class: "calendar-toolbar",
             h2 { "{data.label}" }
             div { class: "calendar-toolbar-actions",
                 nav { class: "calendar-nav", aria_label: "Calendar view",
-                    a {
-                        href: week_href,
-                        aria_current: if !data.month { "true" } else { "false" },
+                    Link {
+                        to: period_route(Some("week".into()), selected.clone()),
+                        class: if !data.month { "calendar-view-active" },
+                        aria_label: if data.month { "Week" } else { "Week (current view)" },
                         "Week"
                     }
-                    a {
-                        href: month_href,
-                        aria_current: if data.month { "true" } else { "false" },
+                    Link {
+                        to: period_route(Some("month".into()), selected.clone()),
+                        class: if data.month { "calendar-view-active" },
+                        aria_label: if data.month { "Month (current view)" } else { "Month" },
                         "Month"
                     }
                 }
                 nav { class: "calendar-nav", aria_label: "Calendar dates",
-                    a { href: period_route(Some(view.into()), data.previous.clone()).to_string(),
+                    Link { to: period_route(Some(view.into()), data.previous.clone()),
                         "Previous"
                     }
-                    a { href: period_route(Some(view.into()), data.today.clone()).to_string(),
+                    Link { to: period_route(Some(view.into()), data.today.clone()),
                         "Today"
                     }
-                    a { href: period_route(Some(view.into()), data.next.clone()).to_string(),
+                    Link { to: period_route(Some(view.into()), data.next.clone()),
                         "Next"
                     }
                 }
