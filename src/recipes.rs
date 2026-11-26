@@ -52,6 +52,36 @@ enum SaveRecipe {
     Conflict,
 }
 
+type IngredientPosition = (usize, usize);
+
+#[derive(Debug, Deserialize, PartialEq, Serialize)]
+enum AddRecipeIngredients {
+    Added { added: usize, skipped: usize },
+    InvalidSelection,
+    StaleRecipe,
+}
+
+#[post("/api/recipes/:id/shopping")]
+async fn add_recipe_ingredients(
+    id: i64,
+    revision: i64,
+    positions: Vec<IngredientPosition>,
+) -> Result<AddRecipeIngredients, ServerFnError> {
+    let actor = crate::auth::require_member()?.id;
+    crate::auth::server::run_blocking(move || {
+        storage::add_to_shopping(
+            &mut crate::auth::server::connection()?,
+            actor,
+            id,
+            revision,
+            positions,
+        )
+        .map_err(crate::accounts::database_error)
+    })
+    .await
+    .map_err(ServerFnError::new)
+}
+
 #[get("/api/recipes")]
 async fn list_recipes() -> Result<Vec<RecipeCard>, ServerFnError> {
     crate::auth::require_member()?;

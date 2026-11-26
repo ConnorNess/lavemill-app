@@ -1,5 +1,8 @@
-use super::{Ingredient, Recipe, RecipeCard, RecipeContents, SaveRecipe, Section, Step};
-use rusqlite::{params, Connection, OptionalExtension, Result, Row};
+use super::{
+    AddRecipeIngredients, Ingredient, IngredientPosition, Recipe, RecipeCard, RecipeContents,
+    SaveRecipe, Section, Step,
+};
+use rusqlite::{params, Connection, OptionalExtension, Result, Row, TransactionBehavior};
 
 pub(super) fn list(db: &Connection) -> Result<Vec<RecipeCard>> {
     let mut query =
@@ -25,18 +28,7 @@ pub(super) fn get(db: &mut Connection, id: i64) -> Result<Option<Recipe>> {
     let Some((title, revision)) = header else {
         return Ok(None);
     };
-    let ingredients = read_sections(
-        &tx,
-        id,
-        "SELECT id, heading FROM recipe_ingredient_sections WHERE recipe_id = ?1 ORDER BY position",
-        "SELECT name, quantity FROM recipe_ingredients WHERE section_id = ?1 ORDER BY position",
-        |row| {
-            Ok(Ingredient {
-                name: row.get(0)?,
-                quantity: row.get(1)?,
-            })
-        },
-    )?;
+    let ingredients = read_ingredients(&tx, id)?;
     let steps = read_sections(
         &tx,
         id,
@@ -58,6 +50,66 @@ pub(super) fn get(db: &mut Connection, id: i64) -> Result<Option<Recipe>> {
             steps,
         },
     }))
+}
+
+pub(super) fn add_to_shopping(
+    db: &mut Connection,
+    actor: i64,
+    id: i64,
+    revision: i64,
+    mut positions: Vec<IngredientPosition>,
+) -> Result<AddRecipeIngredients> {
+    if positions.is_empty() {
+        return Ok(AddRecipeIngredients::InvalidSelection);
+    }
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let current_revision = tx
+        .query_row("SELECT revision FROM recipes WHERE id = ?1", [id], |row| {
+            row.get::<_, i64>(0)
+        })
+        .optional()?;
+    if current_revision != Some(revision) {
+        return Ok(AddRecipeIngredients::StaleRecipe);
+    }
+
+    let sections = read_ingredients(&tx, id)?;
+    positions.sort_unstable();
+    positions.dedup();
+    let selected: Option<Vec<_>> = positions
+        .iter()
+        .map(|&(section, entry)| sections.get(section)?.entries.get(entry))
+        .collect();
+    let Some(selected) = selected else {
+        return Ok(AddRecipeIngredients::InvalidSelection);
+    };
+    let count = selected.len();
+    let added = crate::shopping_storage::add_missing(
+        &tx,
+        actor,
+        selected
+            .into_iter()
+            .map(|ingredient| (ingredient.name.as_str(), ingredient.quantity.as_deref())),
+    )?;
+    tx.commit()?;
+    Ok(AddRecipeIngredients::Added {
+        added,
+        skipped: count - added,
+    })
+}
+
+fn read_ingredients(db: &Connection, id: i64) -> Result<Vec<Section<Ingredient>>> {
+    read_sections(
+        db,
+        id,
+        "SELECT id, heading FROM recipe_ingredient_sections WHERE recipe_id = ?1 ORDER BY position",
+        "SELECT name, quantity FROM recipe_ingredients WHERE section_id = ?1 ORDER BY position",
+        |row| {
+            Ok(Ingredient {
+                name: row.get(0)?,
+                quantity: row.get(1)?,
+            })
+        },
+    )
 }
 
 fn read_sections<T>(
@@ -223,6 +275,105 @@ fn write_sections<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shopping_fixture(db: &Connection) {
+        db.execute_batch(
+            "INSERT INTO users (id, username, first_name, last_name, password_hash)
+             VALUES (1, 'member', 'Household', 'Member', 'unused');
+             INSERT INTO recipes (id, title) VALUES (1, 'Toast');
+             INSERT INTO recipe_ingredient_sections VALUES (1, 1, 0, NULL), (2, 1, 1, 'Topping');
+             INSERT INTO recipe_ingredients VALUES
+                 (1, 0, 'Bread', '1 slice'), (1, 1, 'Butter', NULL), (1, 2, 'Oil', NULL),
+                 (2, 0, 'butter', NULL), (2, 1, 'Jam', NULL), (2, 2, 'Honey', '1 tsp');
+             INSERT INTO shopping_items (name, quantity, created_by, completed_at, removed_at, removed_by)
+             VALUES ('BREAD', '1 slice', 1, NULL, NULL, NULL),
+                    ('Butter', '1 pack', 1, NULL, NULL, NULL),
+                    ('Butter', NULL, 1, unixepoch(), NULL, NULL),
+                    ('Jam', NULL, 1, NULL, unixepoch(), 1);",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn imports_selected_ingredients_in_order_and_skips_only_active_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recipes.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        shopping_fixture(&db);
+        let selection = vec![(1, 2), (1, 1), (1, 0), (0, 1), (0, 0), (0, 1)];
+        assert_eq!(
+            add_to_shopping(&mut db, 1, 1, 1, selection.clone()).unwrap(),
+            AddRecipeIngredients::Added {
+                added: 3,
+                skipped: 2
+            }
+        );
+        assert_eq!(
+            add_to_shopping(&mut db, 1, 1, 1, selection).unwrap(),
+            AddRecipeIngredients::Added {
+                added: 0,
+                skipped: 5
+            }
+        );
+        let mut rows = db
+            .prepare(
+                "SELECT name, quantity, created_by, completed_at IS NULL
+                 FROM shopping_items WHERE id > 4 ORDER BY id",
+            )
+            .unwrap();
+        let items = rows
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, bool>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            items,
+            [
+                ("Butter".into(), None, 1, true),
+                ("Jam".into(), None, 1, true),
+                ("Honey".into(), Some("1 tsp".into()), 1, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_or_stale_selection_and_rolls_back_failed_inserts() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recipes.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        shopping_fixture(&db);
+        for positions in [vec![], vec![(0, 1), (0, 3)], vec![(2, 0)]] {
+            assert_eq!(
+                add_to_shopping(&mut db, 1, 1, 1, positions).unwrap(),
+                AddRecipeIngredients::InvalidSelection
+            );
+        }
+        for (id, revision) in [(1, 2), (2, 1)] {
+            assert_eq!(
+                add_to_shopping(&mut db, 1, id, revision, vec![(0, 1)]).unwrap(),
+                AddRecipeIngredients::StaleRecipe
+            );
+        }
+        db.execute_batch(
+            "CREATE TRIGGER reject_jam BEFORE INSERT ON shopping_items WHEN NEW.name = 'Jam'
+             BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+        )
+        .unwrap();
+        assert!(add_to_shopping(&mut db, 1, 1, 1, vec![(0, 1), (1, 1)]).is_err());
+        let count: i64 = db
+            .query_row("SELECT count(*) FROM shopping_items", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 4);
+    }
 
     #[test]
     fn editing_replaces_sections_without_overwriting_a_newer_recipe() {
