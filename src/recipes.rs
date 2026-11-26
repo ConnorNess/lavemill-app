@@ -183,13 +183,15 @@ fn RecipeMethod(contents: RecipeContents) -> Element {
             section {
                 h2 { "Ingredients" }
                 for section in &contents.ingredients {
-                    if let Some(heading) = &section.heading { h3 { "{heading}" } }
-                    ul {
-                        for ingredient in &section.entries {
-                            li {
-                                "{ingredient.name}"
-                                if let Some(quantity) = &ingredient.quantity {
-                                    span { class: "row-note", " · {quantity}" }
+                    div { class: if section.heading.is_some() { "recipe-subsection" },
+                        if let Some(heading) = &section.heading { h3 { "{heading}" } }
+                        ul {
+                            for ingredient in &section.entries {
+                                li {
+                                    "{ingredient.name}"
+                                    if let Some(quantity) = &ingredient.quantity {
+                                        span { class: "row-note", " · {quantity}" }
+                                    }
                                 }
                             }
                         }
@@ -199,13 +201,15 @@ fn RecipeMethod(contents: RecipeContents) -> Element {
             section {
                 h2 { "Steps" }
                 for (start, section) in step_numbers {
-                    if let Some(heading) = &section.heading { h3 { "{heading}" } }
-                    ol { start: start as i64,
-                        for step in &section.entries {
-                            li {
-                                div { class: "recipe-text", "{step.instructions}" }
-                                if let Some(note) = &step.note {
-                                    div { class: "row-note recipe-text", "{note}" }
+                    div { class: if section.heading.is_some() { "recipe-subsection" },
+                        if let Some(heading) = &section.heading { h3 { "{heading}" } }
+                        ol { start: start as i64,
+                            for step in &section.entries {
+                                li {
+                                    div { class: "recipe-text", "{step.instructions}" }
+                                    if let Some(note) = &step.note {
+                                        div { class: "row-note recipe-text", "{note}" }
+                                    }
                                 }
                             }
                         }

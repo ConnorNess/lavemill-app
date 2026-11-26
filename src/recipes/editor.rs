@@ -4,16 +4,34 @@ use super::{
 use crate::Route;
 use dioxus::prelude::*;
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq)]
 struct EntryFields {
     text: String,
     detail: String,
 }
 
-#[derive(Default)]
+enum EntryChange {
+    Text(String),
+    Detail(String),
+}
+
+impl EntryFields {
+    fn update(&mut self, change: EntryChange) {
+        match change {
+            EntryChange::Text(value) => self.text = value,
+            EntryChange::Detail(value) => self.detail = value,
+        }
+    }
+}
+
 struct SectionFields {
     heading: String,
     entries: Ordered<EntryFields>,
+}
+
+enum EditorItem {
+    Entry(EntryFields),
+    Subsection(SectionFields),
 }
 
 struct Ordered<T> {
@@ -66,48 +84,66 @@ enum OrderAction {
 
 impl SectionFields {
     fn blank() -> Self {
-        let mut section = Self::default();
-        section.entries.push(EntryFields::default());
-        section
+        Self {
+            heading: String::new(),
+            entries: [EntryFields::default()].into_iter().collect(),
+        }
     }
 }
 
-fn blank_sections() -> Ordered<SectionFields> {
-    let mut sections = Ordered::default();
-    sections.push(SectionFields::blank());
-    sections
+fn blank_items() -> Ordered<EditorItem> {
+    [EditorItem::Entry(EntryFields::default())]
+        .into_iter()
+        .collect()
 }
 
-fn edit_sections<T>(
+fn edit_items<T>(
     sections: Vec<Section<T>>,
     entry: impl Fn(T) -> EntryFields,
-) -> Ordered<SectionFields> {
-    sections
-        .into_iter()
-        .map(|section| SectionFields {
-            heading: section.heading.unwrap_or_default(),
-            entries: section.entries.into_iter().map(&entry).collect(),
-        })
-        .collect()
+) -> Ordered<EditorItem> {
+    let mut items = Ordered::default();
+    for section in sections {
+        let entries = section.entries.into_iter().map(&entry);
+        if let Some(heading) = section.heading {
+            items.push(EditorItem::Subsection(SectionFields {
+                heading,
+                entries: entries.collect(),
+            }));
+        } else {
+            for fields in entries {
+                items.push(EditorItem::Entry(fields));
+            }
+        }
+    }
+    items
 }
 
-fn contents<T>(
-    sections: &Ordered<SectionFields>,
-    entry: impl Fn(&EntryFields) -> T,
-) -> Vec<Section<T>> {
+fn contents<T>(items: &Ordered<EditorItem>, entry: impl Fn(&EntryFields) -> T) -> Vec<Section<T>> {
+    let mut sections: Vec<Section<T>> = Vec::new();
+    for (_, item) in &items.items {
+        match item {
+            EditorItem::Entry(fields) => {
+                let value = entry(fields);
+                match sections.last_mut() {
+                    Some(section) if section.heading.is_none() => section.entries.push(value),
+                    _ => sections.push(Section {
+                        heading: None,
+                        entries: vec![value],
+                    }),
+                }
+            }
+            EditorItem::Subsection(section) => sections.push(Section {
+                heading: Some(section.heading.clone()),
+                entries: section
+                    .entries
+                    .items
+                    .iter()
+                    .map(|(_, fields)| entry(fields))
+                    .collect(),
+            }),
+        }
+    }
     sections
-        .items
-        .iter()
-        .map(|(_, section)| Section {
-            heading: Some(section.heading.clone()),
-            entries: section
-                .entries
-                .items
-                .iter()
-                .map(|(_, fields)| entry(fields))
-                .collect(),
-        })
-        .collect()
 }
 
 #[component]
@@ -159,16 +195,16 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
         let (title, ingredients, steps) = match initial {
             Some(recipe) => (
                 recipe.title,
-                edit_sections(recipe.ingredients, |ingredient| EntryFields {
+                edit_items(recipe.ingredients, |ingredient| EntryFields {
                     text: ingredient.name,
                     detail: ingredient.quantity.unwrap_or_default(),
                 }),
-                edit_sections(recipe.steps, |step| EntryFields {
+                edit_items(recipe.steps, |step| EntryFields {
                     text: step.instructions,
                     detail: step.note.unwrap_or_default(),
                 }),
             ),
-            None => (String::new(), blank_sections(), blank_sections()),
+            None => (String::new(), blank_items(), blank_items()),
         };
         (
             Signal::new(title),
@@ -219,8 +255,10 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
         },
             fieldset { disabled: pending(), class: "recipe-editor-fields",
                 label { "Title", input { required: true, value: title(), oninput: move |event| title.set(event.value()) } }
-                EditSections { sections: ingredients, ingredients: true }
-                EditSections { sections: steps, ingredients: false }
+                div { class: "recipe-editor-columns",
+                    EditItems { items: ingredients, ingredients: true }
+                    EditItems { items: steps, ingredients: false }
+                }
                 if !error().is_empty() { p { class: "form-error", role: "alert", {error()} } }
                 if conflict() {
                     if let Some(target) = target {
@@ -234,76 +272,129 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
 }
 
 #[component]
-fn EditSections(mut sections: Signal<Ordered<SectionFields>>, ingredients: bool) -> Element {
-    let sections_read = sections.read();
-    let (heading, item_name, text_label, detail_label) = if ingredients {
-        (
-            "Ingredients",
-            "ingredient",
-            "Ingredient name",
-            "Quantity (optional)",
-        )
+fn EditItems(mut items: Signal<Ordered<EditorItem>>, ingredients: bool) -> Element {
+    let draft = items.read();
+    let (heading, item_name) = if ingredients {
+        ("Ingredients", "ingredient")
     } else {
-        ("Steps", "step", "Instructions", "Note (optional)")
+        ("Steps", "step")
     };
     rsx! {
         section { class: "recipe-editor-section",
             h2 { "{heading}" }
-            for (section_index, (section_key, section)) in sections_read.items.iter().enumerate() {
-                fieldset { key: "{section_key}",
-                    legend { "{heading} section {section_index + 1}" }
-                    label { "Section heading (optional)",
-                        input { value: section.heading.clone(), oninput: move |event| {
-                            sections.write().items[section_index].1.heading = event.value();
-                        } }
-                    }
-                    OrderButtons {
-                        label: format!("{heading} section {}", section_index + 1),
-                        index: section_index,
-                        count: sections_read.items.len(),
-                        change: move |action| sections.write().change(section_index, action),
-                    }
-                    for (entry_index, (entry_key, entry)) in section.entries.items.iter().enumerate() {
-                        div { class: "recipe-editor-entry", key: "{entry_key}",
-                            label { "{text_label}",
-                                if ingredients {
-                                    input { required: true, value: entry.text.clone(), oninput: move |event| {
-                                        sections.write().items[section_index].1.entries.items[entry_index].1.text = event.value();
-                                    } }
-                                } else {
-                                    textarea { required: true, value: entry.text.clone(), oninput: move |event| {
-                                        sections.write().items[section_index].1.entries.items[entry_index].1.text = event.value();
-                                    } }
+            for (index, (key, item)) in draft.items.iter().enumerate() {
+                match item {
+                    EditorItem::Entry(entry) => rsx! {
+                        EntryRow {
+                            key: "item-{key}",
+                            ingredients,
+                            entry: entry.clone(),
+                            label: format!("{item_name} at position {}", index + 1),
+                            index,
+                            count: draft.items.len(),
+                            update: move |change| {
+                                if let EditorItem::Entry(entry) = &mut items.write().items[index].1 {
+                                    entry.update(change);
+                                }
+                            },
+                            order: move |action| items.write().change(index, action),
+                        }
+                    },
+                    EditorItem::Subsection(section) => rsx! {
+                        fieldset { class: "recipe-editor-subsection", key: "item-{key}", aria_label: "{heading} subsection at position {index + 1}",
+                            div { class: "recipe-editor-row",
+                                input {
+                                    required: true,
+                                    aria_label: "Subsection name",
+                                    placeholder: "Subsection name",
+                                    value: section.heading.clone(),
+                                    oninput: move |event| {
+                                        if let EditorItem::Subsection(section) = &mut items.write().items[index].1 {
+                                            section.heading = event.value();
+                                        }
+                                    },
+                                }
+                                OrderButtons {
+                                    label: format!("{heading} subsection at position {}", index + 1),
+                                    index,
+                                    count: draft.items.len(),
+                                    change: move |action| items.write().change(index, action),
                                 }
                             }
-                            label { "{detail_label}",
-                                if ingredients {
-                                    input { value: entry.detail.clone(), oninput: move |event| {
-                                        sections.write().items[section_index].1.entries.items[entry_index].1.detail = event.value();
-                                    } }
-                                } else {
-                                    textarea { value: entry.detail.clone(), oninput: move |event| {
-                                        sections.write().items[section_index].1.entries.items[entry_index].1.detail = event.value();
-                                    } }
+                            for (entry_index, (entry_key, entry)) in section.entries.items.iter().enumerate() {
+                                EntryRow {
+                                    key: "{entry_key}",
+                                    ingredients,
+                                    entry: entry.clone(),
+                                    label: format!("{item_name} {} in subsection at position {}", entry_index + 1, index + 1),
+                                    index: entry_index,
+                                    count: section.entries.items.len(),
+                                    update: move |change| {
+                                        if let EditorItem::Subsection(section) = &mut items.write().items[index].1 {
+                                            section.entries.items[entry_index].1.update(change);
+                                        }
+                                    },
+                                    order: move |action| {
+                                        if let EditorItem::Subsection(section) = &mut items.write().items[index].1 {
+                                            section.entries.change(entry_index, action);
+                                        }
+                                    },
                                 }
                             }
-                            OrderButtons {
-                                label: format!("{item_name} {} in section {}", entry_index + 1, section_index + 1),
-                                index: entry_index,
-                                count: section.entries.items.len(),
-                                change: move |action| sections.write().items[section_index].1.entries.change(entry_index, action),
+                            button { class: "secondary-button", r#type: "button",
+                                onclick: move |_| {
+                                    if let EditorItem::Subsection(section) = &mut items.write().items[index].1 {
+                                        section.entries.push(EntryFields::default());
+                                    }
+                                },
+                                "Add {item_name} to subsection"
                             }
                         }
-                    }
-                    button { class: "secondary-button", r#type: "button",
-                        onclick: move |_| sections.write().items[section_index].1.entries.push(EntryFields::default()),
-                        "Add {item_name}"
-                    }
+                    },
                 }
             }
-            button { class: "secondary-button", r#type: "button", onclick: move |_| sections.write().push(SectionFields::blank()),
-                "Add {item_name} section"
+            div { class: "recipe-editor-actions",
+                button { class: "secondary-button", r#type: "button",
+                    onclick: move |_| items.write().push(EditorItem::Entry(EntryFields::default())),
+                    "Add {item_name}"
+                }
+                button { class: "secondary-button", r#type: "button",
+                    onclick: move |_| items.write().push(EditorItem::Subsection(SectionFields::blank())),
+                    "Add subsection"
+                }
             }
+        }
+    }
+}
+
+#[component]
+fn EntryRow(
+    ingredients: bool,
+    entry: EntryFields,
+    label: String,
+    index: usize,
+    count: usize,
+    update: EventHandler<EntryChange>,
+    order: EventHandler<OrderAction>,
+) -> Element {
+    rsx! {
+        div { class: "recipe-editor-row",
+            if ingredients {
+                div { class: "recipe-editor-ingredient",
+                    input { required: true, aria_label: "Ingredient name", placeholder: "Ingredient name",
+                        value: entry.text, oninput: move |event| update.call(EntryChange::Text(event.value())) }
+                    input { aria_label: "Quantity (optional)", placeholder: "Quantity",
+                        value: entry.detail, oninput: move |event| update.call(EntryChange::Detail(event.value())) }
+                }
+            } else {
+                div { class: "recipe-editor-step",
+                    textarea { required: true, rows: 2, aria_label: "Instructions", placeholder: "Instructions",
+                        value: entry.text, oninput: move |event| update.call(EntryChange::Text(event.value())) }
+                    textarea { rows: 1, aria_label: "Note (optional)", placeholder: "Note (optional)",
+                        value: entry.detail, oninput: move |event| update.call(EntryChange::Detail(event.value())) }
+                }
+            }
+            OrderButtons { label, index, count, change: order }
         }
     }
 }
@@ -315,14 +406,55 @@ fn OrderButtons(
     count: usize,
     change: EventHandler<OrderAction>,
 ) -> Element {
+    let up = format!("Move {label} up");
+    let down = format!("Move {label} down");
+    let remove = format!("Remove {label}");
     rsx! {
         div { class: "recipe-order-buttons",
-            button { class: "secondary-button", r#type: "button", aria_label: "Move {label} up", disabled: index == 0,
-                onclick: move |_| change.call(OrderAction::Up), "Move up" }
-            button { class: "secondary-button", r#type: "button", aria_label: "Move {label} down", disabled: index + 1 == count,
-                onclick: move |_| change.call(OrderAction::Down), "Move down" }
-            button { class: "secondary-button", r#type: "button", aria_label: "Remove {label}",
-                onclick: move |_| change.call(OrderAction::Remove), "Remove" }
+            button { r#type: "button", aria_label: up.clone(), title: up, disabled: index == 0,
+                onclick: move |_| change.call(OrderAction::Up), "↑" }
+            button { r#type: "button", aria_label: down.clone(), title: down, disabled: index + 1 == count,
+                onclick: move |_| change.call(OrderAction::Down), "↓" }
+            button { r#type: "button", aria_label: remove.clone(), title: remove,
+                onclick: move |_| change.call(OrderAction::Remove), "×" }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn moving_a_subsection_keeps_its_entries_together() {
+        let main = |entries: Vec<&str>| Section {
+            heading: None,
+            entries: entries.into_iter().map(String::from).collect(),
+        };
+        let marinade = Section {
+            heading: Some("Marinade".into()),
+            entries: vec!["Soy sauce".into(), "Garlic puree".into()],
+        };
+        let saved = vec![
+            main(vec!["Pasta", "Chicken breast"]),
+            marinade.clone(),
+            main(vec!["Salt", "Pepper"]),
+        ];
+        let mut draft = edit_items(saved.clone(), |name| EntryFields {
+            text: name,
+            detail: String::new(),
+        });
+        let ingredient_name = |fields: &EntryFields| fields.text.clone();
+
+        assert_eq!(contents(&draft, ingredient_name), saved);
+        draft.change(2, OrderAction::Down);
+        assert_eq!(
+            contents(&draft, ingredient_name),
+            vec![
+                main(vec!["Pasta", "Chicken breast", "Salt"]),
+                marinade,
+                main(vec!["Pepper"]),
+            ]
+        );
     }
 }
