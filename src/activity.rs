@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
+const STEAM_ICON: Asset = asset!("/assets/steam.svg");
+
 #[derive(Deserialize, Serialize)]
 struct ActivitySnapshot {
     rows: Vec<ActivityRow>,
@@ -184,10 +186,19 @@ pub(super) fn ActivityCard() -> Element {
                             strong { "{row.name}" }
                             div {
                                 if let Some(status) = &row.plex_status {
-                                    span { "{status}" }
+                                    span { class: "activity-status",
+                                        crate::Icon { kind: "Plex" }
+                                        span {
+                                            span { class: "sr-only", "Plex " }
+                                            "{status}"
+                                        }
+                                    }
                                 }
                                 if let Some(game) = &row.steam_game {
-                                    span { "Playing {game}" }
+                                    span { class: "activity-status",
+                                        img { src: STEAM_ICON, alt: "Steam" }
+                                        span { "Playing {game}" }
+                                    }
                                 }
                             }
                         }
