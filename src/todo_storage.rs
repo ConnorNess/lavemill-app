@@ -97,38 +97,26 @@ fn apply_change(
     actor: i64,
     change: Change,
 ) -> Result<(), &'static str> {
-    let completed_id = match &change {
-        Change::Complete { id } => Some(*id),
-        _ => None,
-    };
     let changed = match change {
-        Change::Create { title, description, due, assignee, repeat } => {
-            if title.trim().is_empty() {
-                return Err("Enter a task title.");
-            }
-            let date = due.parse::<NaiveDate>().map_err(|_| "Choose a valid due date.")?;
-            if due.len() != 10 || due.starts_with("0000") || date.to_string() != due {
-                return Err("Choose a valid due date.");
-            }
-            validate_assignee(db, assignee)?;
-            let (series, next_due) = if let Some(frequency) = frequency(repeat) {
-                let next_due = next_date(frequency, date, date)
-                    .ok_or("Choose an earlier first due date for this repeat.")?;
-                let series = db.query_row(
-                    "INSERT INTO todo_series (frequency, first_due, usual_assignee_id)
-                     VALUES (?1, ?2, ?3) RETURNING id",
-                    params![frequency, due, assignee], |row| row.get::<_, i64>(0),
-                ).map_err(database_error)?;
-                (Some(series), Some(next_due.to_string()))
-            } else {
-                (None, None)
-            };
-            db.execute(
-                "INSERT INTO todos (title, description, due, reporter_id, assignee_id, series_id, next_due)
-                 VALUES (?1, NULLIF(?2, ''), ?3, ?4, ?5, ?6, ?7)",
-                params![title.trim(), description.trim(), due, actor, assignee, series, next_due],
-            ).map_err(database_error)?;
-            return catch_up(db, today);
+        Change::Create {
+            title,
+            description,
+            due,
+            assignee,
+            repeat,
+        } => {
+            return create_task(
+                db,
+                today,
+                actor,
+                NewTask {
+                    title,
+                    description,
+                    due,
+                    assignee,
+                    repeat,
+                },
+            );
         }
         Change::Describe { id, description } => db.execute(
             "UPDATE todos SET description = NULLIF(?2, '') WHERE id = ?1 AND status = 'open'",
@@ -141,7 +129,83 @@ fn apply_change(
                 params![id, assignee],
             )
         }
-        Change::Complete { id } => db.execute(
+        Change::Complete { id } => return complete_task(db, actor, id),
+        Change::Reopen { id } => db.execute(
+            "UPDATE todos SET status = 'open', assignee_id = previous_assignee_id,
+                previous_assignee_id = NULL, completed_by = NULL, completed_at = NULL
+             WHERE id = ?1 AND status = 'completed' AND (next_due IS NULL OR next_due > ?2)",
+            params![id, today],
+        ),
+    }
+    .map_err(database_error)?;
+    ensure_task_changed(changed)
+}
+
+struct NewTask {
+    title: String,
+    description: String,
+    due: String,
+    assignee: Option<i64>,
+    repeat: Repeat,
+}
+
+fn create_task(
+    db: &Connection,
+    today: &str,
+    actor: i64,
+    task: NewTask,
+) -> Result<(), &'static str> {
+    let NewTask {
+        title,
+        description,
+        due,
+        assignee,
+        repeat,
+    } = task;
+    if title.trim().is_empty() {
+        return Err("Enter a task title.");
+    }
+    let date = due
+        .parse::<NaiveDate>()
+        .map_err(|_| "Choose a valid due date.")?;
+    if due.len() != 10 || due.starts_with("0000") || date.to_string() != due {
+        return Err("Choose a valid due date.");
+    }
+    validate_assignee(db, assignee)?;
+    let (series, next_due) = if let Some(frequency) = frequency(repeat) {
+        let next_due = next_date(frequency, date, date)
+            .ok_or("Choose an earlier first due date for this repeat.")?;
+        let series = db
+            .query_row(
+                "INSERT INTO todo_series (frequency, first_due, usual_assignee_id)
+             VALUES (?1, ?2, ?3) RETURNING id",
+                params![frequency, due, assignee],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(database_error)?;
+        (Some(series), Some(next_due.to_string()))
+    } else {
+        (None, None)
+    };
+    db.execute(
+        "INSERT INTO todos (title, description, due, reporter_id, assignee_id, series_id, next_due)
+         VALUES (?1, NULLIF(?2, ''), ?3, ?4, ?5, ?6, ?7)",
+        params![
+            title.trim(),
+            description.trim(),
+            due,
+            actor,
+            assignee,
+            series,
+            next_due
+        ],
+    )
+    .map_err(database_error)?;
+    catch_up(db, today)
+}
+
+fn complete_task(db: &Connection, actor: i64, id: i64) -> Result<(), &'static str> {
+    let changed = db.execute(
             "UPDATE todos SET
                  previous_assignee_id = CASE WHEN status = 'open' THEN assignee_id ELSE previous_assignee_id END,
                  assignee_id = CASE WHEN status = 'open' THEN ?2 ELSE assignee_id END,
@@ -149,19 +213,14 @@ fn apply_change(
                  completed_at = COALESCE(completed_at, unixepoch()), status = 'completed'
              WHERE id = ?1 AND status IN ('open', 'completed')",
             params![id, actor],
-        ),
-        Change::Reopen { id } => db.execute(
-            "UPDATE todos SET status = 'open', assignee_id = previous_assignee_id,
-                previous_assignee_id = NULL, completed_by = NULL, completed_at = NULL
-             WHERE id = ?1 AND status = 'completed' AND (next_due IS NULL OR next_due > ?2)",
-            params![id, today],
-        ),
-    }.map_err(database_error)?;
+    ).map_err(database_error)?;
+    ensure_task_changed(changed)?;
+    create_successor(db, id)
+}
+
+fn ensure_task_changed(changed: usize) -> Result<(), &'static str> {
     if changed == 0 {
         return Err("This task has changed. Refresh and try again.");
-    }
-    if let Some(id) = completed_id {
-        create_successor(db, id)?;
     }
     Ok(())
 }
