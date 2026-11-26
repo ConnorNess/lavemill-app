@@ -245,34 +245,59 @@ pub mod server {
             .layer(middleware::from_fn_with_state(state, guard)))
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum RequestKind {
+        HouseholdPage,
+        AdminPage,
+        HouseholdApi,
+        AdminApi,
+        ActivityApi,
+        Calendar,
+        Session,
+        PublicAuth,
+        Other,
+    }
+
+    impl RequestKind {
+        fn classify(path: &str) -> Self {
+            match path.trim_end_matches('/') {
+                "/users" => return Self::AdminPage,
+                "" | "/todos" | "/shopping" | "/calendar" => return Self::HouseholdPage,
+                _ => {}
+            }
+            if path == "/recipes" || path.starts_with("/recipes/") {
+                Self::HouseholdPage
+            } else if path.starts_with("/api/users") {
+                Self::AdminApi
+            } else if path == "/api/session" {
+                Self::Session
+            } else if path == "/api/activity" {
+                Self::ActivityApi
+            } else if path.starts_with("/calendar/google/")
+                || path.starts_with("/calendar/outlook/")
+                || path == "/api/calendar"
+                || path.starts_with("/api/calendar/")
+            {
+                Self::Calendar
+            } else if ["/api/todos", "/api/shopping", "/api/recipes"]
+                .iter()
+                .any(|prefix| {
+                    path.strip_prefix(prefix)
+                        .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+                })
+            {
+                Self::HouseholdApi
+            } else if path == "/login" || path.starts_with("/auth/") {
+                Self::PublicAuth
+            } else {
+                Self::Other
+            }
+        }
+    }
+
     async fn guard(State(state): State<AuthState>, mut request: Request, next: Next) -> Response {
-        let path = request.uri().path();
-        let recipe_page = path == "/recipes" || path.starts_with("/recipes/");
-        let recipes_api = path == "/api/recipes" || path.starts_with("/api/recipes/");
-        let page = matches!(
-            path.trim_end_matches('/'),
-            "" | "/todos" | "/shopping" | "/users" | "/calendar"
-        ) || recipe_page;
-        let users_page = path.trim_end_matches('/') == "/users";
-        let users_api = path.starts_with("/api/users");
-        let session_api = path == "/api/session";
-        let todos_api = path == "/api/todos" || path.starts_with("/api/todos/");
-        let shopping_api = path == "/api/shopping" || path.starts_with("/api/shopping/");
-        let activity_api = path == "/api/activity";
-        let calendar_request = (path.starts_with("/calendar/google/")
-            || path.starts_with("/calendar/outlook/"))
-            || path == "/api/calendar"
-            || path.starts_with("/api/calendar/");
-        let account_request = page
-            || users_api
-            || todos_api
-            || shopping_api
-            || recipes_api
-            || activity_api
-            || calendar_request
-            || session_api
-            || path == "/login"
-            || path.starts_with("/auth/");
+        let kind = RequestKind::classify(request.uri().path());
+        let account_request = kind != RequestKind::Other;
         if account_request
             && request.method() != Method::GET
             && request.method() != Method::HEAD
@@ -284,15 +309,7 @@ pub mod server {
             ).into_response());
         }
 
-        if page
-            || users_api
-            || todos_api
-            || shopping_api
-            || recipes_api
-            || activity_api
-            || session_api
-            || calendar_request
-        {
+        if account_request && kind != RequestKind::PublicAuth {
             let token = state.token(request.headers());
             let viewer = match token {
                 Some(token) => match run_blocking(move || lookup_session(&token)).await {
@@ -303,7 +320,9 @@ pub mod server {
             };
             match viewer {
                 Some(viewer) => {
-                    if (users_page || users_api) && !viewer.is_admin {
+                    if matches!(kind, RequestKind::AdminPage | RequestKind::AdminApi)
+                        && !viewer.is_admin
+                    {
                         return private(StatusCode::FORBIDDEN.into_response());
                     }
                     request.extensions_mut().insert(viewer);
@@ -312,19 +331,15 @@ pub mod server {
                     }
                     request.extensions_mut().insert(state.calendars.clone());
                     request.extensions_mut().insert(state.tautulli.clone());
-                    if activity_api {
+                    if kind == RequestKind::ActivityApi {
                         request.extensions_mut().insert(state.steam.clone());
                     }
                 }
-                None if page => return private(Redirect::to("/login").into_response()),
-                None if users_api
-                    || todos_api
-                    || shopping_api
-                    || recipes_api
-                    || activity_api
-                    || calendar_request =>
-                {
-                    return private(StatusCode::UNAUTHORIZED.into_response())
+                None if matches!(kind, RequestKind::HouseholdPage | RequestKind::AdminPage) => {
+                    return private(Redirect::to("/login").into_response());
+                }
+                None if kind != RequestKind::Session => {
+                    return private(StatusCode::UNAUTHORIZED.into_response());
                 }
                 None => {}
             }
@@ -334,6 +349,37 @@ pub mod server {
             private(response)
         } else {
             response
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn classifies_request_paths() {
+        use RequestKind::*;
+        for (path, expected) in [
+            ("/", HouseholdPage),
+            ("/todos/", HouseholdPage),
+            ("/shopping", HouseholdPage),
+            ("/recipes/42/edit", HouseholdPage),
+            ("/calendar/", HouseholdPage),
+            ("/users/", AdminPage),
+            ("/api/users/create", AdminApi),
+            ("/api/users-extra", AdminApi),
+            ("/api/todos", HouseholdApi),
+            ("/api/shopping/change", HouseholdApi),
+            ("/api/recipes/42", HouseholdApi),
+            ("/api/todos-extra", Other),
+            ("/api/calendar/view", Calendar),
+            ("/calendar/google/callback", Calendar),
+            ("/calendar/outlook/share", Calendar),
+            ("/api/activity", ActivityApi),
+            ("/api/session", Session),
+            ("/api/session/", Other),
+            ("/login", PublicAuth),
+            ("/auth/logout", PublicAuth),
+            ("/healthz", Other),
+        ] {
+            assert_eq!(RequestKind::classify(path), expected, "{path}");
         }
     }
 
