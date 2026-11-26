@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
+const STEAM_ICON: Asset = asset!("/assets/steam.svg");
+
 #[derive(Deserialize, Serialize)]
 struct ActivitySnapshot {
-    configured: bool,
     rows: Vec<ActivityRow>,
 }
 
@@ -11,7 +12,7 @@ struct ActivitySnapshot {
 struct ActivityRow {
     member_id: i64,
     name: String,
-    status: String,
+    plex_status: Option<String>,
     steam_game: Option<String>,
 }
 
@@ -31,14 +32,14 @@ async fn user_activity() -> Result<ActivitySnapshot, ServerFnError> {
     let members = crate::auth::server::run_blocking(load_members)
         .await
         .map_err(ServerFnError::new)?;
-    let configured = tautulli.is_configured();
     let steam_ids = members
         .iter()
         .filter_map(|member| member.steam_id)
         .collect();
     let (activity, games) = tokio::join!(
         async {
-            if configured && members.iter().any(|member| member.profile_id.is_some()) {
+            if tautulli.is_configured() && members.iter().any(|member| member.profile_id.is_some())
+            {
                 tautulli.activity().await.ok()
             } else {
                 None
@@ -51,7 +52,7 @@ async fn user_activity() -> Result<ActivitySnapshot, ServerFnError> {
         .map(|activity| activity.sessions.as_slice());
 
     let rows = activity_rows(&members, sessions, &games);
-    Ok(ActivitySnapshot { configured, rows })
+    Ok(ActivitySnapshot { rows })
 }
 
 #[cfg(feature = "server")]
@@ -62,9 +63,13 @@ fn activity_rows(
 ) -> Vec<ActivityRow> {
     members
         .iter()
-        .map(|member| ActivityRow {
-            member_id: member.id,
-            name: if members
+        .filter_map(|member| {
+            let plex_status = plex_status(member.profile_id, sessions);
+            let steam_game = member.steam_id.and_then(|id| games.get(&id).cloned());
+            if plex_status.is_none() && steam_game.is_none() {
+                return None;
+            }
+            let name = if members
                 .iter()
                 .filter(|other| member.first.eq_ignore_ascii_case(&other.first))
                 .count()
@@ -73,9 +78,13 @@ fn activity_rows(
                 format!("{} {}", member.first, member.last)
             } else {
                 member.first.clone()
-            },
-            status: status(member.profile_id, sessions),
-            steam_game: member.steam_id.and_then(|id| games.get(&id).cloned()),
+            };
+            Some(ActivityRow {
+                member_id: member.id,
+                name,
+                plex_status,
+                steam_game,
+            })
         })
         .collect()
 }
@@ -119,16 +128,14 @@ fn load_members() -> Result<Vec<Member>, &'static str> {
 }
 
 #[cfg(feature = "server")]
-fn status(profile_id: Option<i64>, sessions: Option<&[crate::tautulli::Playback]>) -> String {
+fn plex_status(
+    profile_id: Option<i64>,
+    sessions: Option<&[crate::tautulli::Playback]>,
+) -> Option<String> {
     use crate::tautulli::PlaybackState;
 
-    let Some(profile_id) = profile_id else {
-        return "Plex not linked".into();
-    };
-    let Some(sessions) = sessions else {
-        return "Activity unavailable".into();
-    };
-    let current = sessions
+    let profile_id = profile_id?;
+    let session = sessions?
         .iter()
         .filter(|session| session.user_id == profile_id && session.state != PlaybackState::Other)
         .max_by_key(|session| {
@@ -136,35 +143,36 @@ fn status(profile_id: Option<i64>, sessions: Option<&[crate::tautulli::Playback]
                 session.state,
                 std::cmp::Reverse(session.session_id.as_str()),
             )
-        });
-    match current {
-        Some(session) => {
-            let title = &session.full_title;
-            match session.state {
-                PlaybackState::Playing => format!("Watching {title}"),
-                PlaybackState::Paused => format!("Paused · {title}"),
-                PlaybackState::Buffering => format!("Buffering · {title}"),
-                PlaybackState::Other => unreachable!("Unsupported states were filtered out"),
-            }
-        }
-        None => "Not watching".into(),
-    }
+        })?;
+    let title = &session.full_title;
+    Some(match session.state {
+        PlaybackState::Playing => format!("Watching {title}"),
+        PlaybackState::Paused => format!("Paused · {title}"),
+        PlaybackState::Buffering => format!("Buffering · {title}"),
+        PlaybackState::Other => unreachable!("Unsupported states were filtered out"),
+    })
 }
 
 #[component]
 pub(super) fn ActivityCard() -> Element {
-    let snapshot = use_signal(|| None::<Result<ActivitySnapshot, ServerFnError>>);
+    let snapshot = use_signal(|| None::<ActivitySnapshot>);
     #[cfg(target_arch = "wasm32")]
     use_future(move || {
         let mut snapshot = snapshot;
         async move {
             loop {
-                snapshot.set(Some(user_activity().await));
+                snapshot.set(user_activity().await.ok());
                 gloo_timers::future::TimeoutFuture::new(30_000).await;
             }
         }
     });
     let snapshot = snapshot.read();
+    let Some(snapshot) = snapshot
+        .as_ref()
+        .filter(|snapshot| !snapshot.rows.is_empty())
+    else {
+        return rsx! {};
+    };
 
     rsx! {
         section { class: "dashboard-card activity-card", aria_labelledby: "user-activity-heading",
@@ -172,27 +180,29 @@ pub(super) fn ActivityCard() -> Element {
                 h2 { class: "card-heading-copy", id: "user-activity-heading", "User Activity" }
             }
             div { class: "card-body",
-                match snapshot.as_ref() {
-                    Some(Ok(snapshot)) => rsx! {
-                        if !snapshot.configured {
-                            p { class: "activity-message", "Plex activity is not configured." }
-                        }
-                        ul { class: "activity-list",
-                            for row in &snapshot.rows {
-                                li { key: "{row.member_id}",
-                                    strong { "{row.name}" }
-                                    div {
-                                        span { "{row.status}" }
-                                        if let Some(game) = &row.steam_game {
-                                            span { "Playing {game}" }
+                ul { class: "activity-list",
+                    for row in &snapshot.rows {
+                        li { key: "{row.member_id}",
+                            strong { "{row.name}" }
+                            div {
+                                if let Some(status) = &row.plex_status {
+                                    span { class: "activity-status",
+                                        crate::Icon { kind: "Plex" }
+                                        span {
+                                            span { class: "sr-only", "Plex " }
+                                            "{status}"
                                         }
+                                    }
+                                }
+                                if let Some(game) = &row.steam_game {
+                                    span { class: "activity-status",
+                                        img { src: STEAM_ICON, alt: "Steam" }
+                                        span { "Playing {game}" }
                                     }
                                 }
                             }
                         }
-                    },
-                    Some(Err(_)) => rsx! { p { class: "activity-message", "Activity unavailable." } },
-                    None => rsx! { p { class: "activity-message", "Loading activity…" } },
+                    }
                 }
             }
         }
@@ -201,7 +211,7 @@ pub(super) fn ActivityCard() -> Element {
 
 #[cfg(all(test, feature = "server"))]
 mod tests {
-    use super::{activity_rows, status, Member};
+    use super::{activity_rows, plex_status, Member};
     use crate::tautulli::{Playback, PlaybackState::*};
     use std::collections::HashMap;
 
@@ -212,10 +222,10 @@ mod tests {
             first: "Same".into(),
             last: "Name".into(),
             profile_id: None,
-            steam_id: None,
+            steam_id: Some(id),
         };
         let mut members = [member(1), member(2)];
-        let games = HashMap::new();
+        let games = HashMap::from([(1, "Game One".into()), (2, "Game Two".into())]);
         let before = activity_rows(&members, None, &games);
         members.reverse();
         let after = activity_rows(&members, None, &games);
@@ -243,14 +253,18 @@ mod tests {
         }];
         let games = HashMap::from([(steam_id, "Hades II".into())]);
         let both = activity_rows(&members, Some(&sessions), &games);
-        assert_eq!(both[0].status, "Watching The Odyssey");
+        assert_eq!(both[0].plex_status.as_deref(), Some("Watching The Odyssey"));
         assert_eq!(both[0].steam_game.as_deref(), Some("Hades II"));
 
         let plex_only = activity_rows(&members, Some(&sessions), &HashMap::new());
-        assert_eq!(plex_only[0].status, "Watching The Odyssey");
+        assert_eq!(
+            plex_only[0].plex_status.as_deref(),
+            Some("Watching The Odyssey")
+        );
         assert_eq!(plex_only[0].steam_game, None);
 
         let steam_only = activity_rows(&members, None, &games);
+        assert_eq!(steam_only[0].plex_status, None);
         assert_eq!(steam_only[0].steam_game.as_deref(), Some("Hades II"));
     }
 
@@ -270,17 +284,44 @@ mod tests {
             playback(102, "5", "Episode", Paused),
             playback(103, "6", "Live TV", Buffering),
         ];
-        assert_eq!(status(Some(101), Some(&sessions)), "Watching The Odyssey");
-        assert_eq!(status(Some(102), Some(&sessions)), "Paused · Episode");
-        assert_eq!(status(Some(103), Some(&sessions)), "Buffering · Live TV");
-        assert_eq!(status(Some(104), Some(&sessions)), "Not watching");
-        assert_eq!(status(None, Some(&sessions)), "Plex not linked");
+        assert_eq!(
+            plex_status(Some(101), Some(&sessions)).as_deref(),
+            Some("Watching The Odyssey")
+        );
+        assert_eq!(
+            plex_status(Some(102), Some(&sessions)).as_deref(),
+            Some("Paused · Episode")
+        );
+        assert_eq!(
+            plex_status(Some(103), Some(&sessions)).as_deref(),
+            Some("Buffering · Live TV")
+        );
+        assert_eq!(plex_status(Some(104), Some(&sessions)), None);
     }
 
     #[test]
-    fn distinguishes_empty_activity_from_unavailable_activity() {
-        assert_eq!(status(Some(101), Some(&[])), "Not watching");
-        assert_eq!(status(Some(101), None), "Activity unavailable");
-        assert_eq!(status(None, None), "Plex not linked");
+    fn omits_members_without_reported_activity() {
+        let mut members = [Member {
+            id: 1,
+            first: "Household".into(),
+            last: "Member".into(),
+            profile_id: Some(101),
+            steam_id: Some(76561198000000001),
+        }];
+        let mut sessions = [Playback {
+            user_id: 101,
+            session_id: "1".into(),
+            full_title: "The Odyssey".into(),
+            state: Other,
+        }];
+        let games = HashMap::new();
+        assert!(activity_rows(&members, Some(&[]), &games).is_empty());
+        assert!(activity_rows(&members, Some(&sessions), &games).is_empty());
+        assert!(activity_rows(&members, None, &games).is_empty());
+
+        sessions[0].state = Playing;
+        members[0].profile_id = None;
+        members[0].steam_id = None;
+        assert!(activity_rows(&members, Some(&sessions), &games).is_empty());
     }
 }
