@@ -1,4 +1,4 @@
-use super::{CardHeading, Route, StatusMark};
+use super::{CardHeading, Route};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -130,9 +130,18 @@ impl Group {
 #[component]
 pub(super) fn TasksCard() -> Element {
     let data = use_server_future(list_tasks)?;
+    let mut refreshed = use_signal(|| None::<Tasks>);
+    let mut pending = use_signal(|| false);
+    let mut refresh_failed = use_signal(|| false);
+    let mut error = use_signal(String::new);
+    let mut failed_checkbox = use_signal(|| (None::<i64>, 0));
     let result = data.read();
+    let refreshed_data = refreshed.read();
+    let current = refreshed_data
+        .as_ref()
+        .or_else(|| result.as_ref()?.as_ref().ok());
     let mut tasks = Vec::new();
-    if let Some(Ok(data)) = result.as_ref() {
+    if let Some(data) = current {
         tasks.extend(
             data.tasks
                 .iter()
@@ -141,35 +150,104 @@ pub(super) fn TasksCard() -> Element {
         tasks.sort_by_key(|task| task.status == "completed");
     }
     let open = tasks.iter().filter(|task| task.status == "open").count();
+    let toggle = Callback::new(move |(id, checked): (i64, bool)| {
+        if pending() || refresh_failed() {
+            return;
+        }
+        pending.set(true);
+        error.set(String::new());
+        spawn(async move {
+            let change = if checked {
+                Change::Complete { id }
+            } else {
+                Change::Reopen { id }
+            };
+            let reset_checkbox = match save(change).await {
+                Ok(()) => match list_tasks().await {
+                    Ok(tasks) => {
+                        refreshed.set(Some(tasks));
+                        false
+                    }
+                    Err(_) => {
+                        refresh_failed.set(true);
+                        true
+                    }
+                },
+                Err(message) => {
+                    error.set(message);
+                    true
+                }
+            };
+            if reset_checkbox {
+                let (_, revision) = failed_checkbox();
+                failed_checkbox.set((Some(id), revision + 1));
+            }
+            pending.set(false);
+        });
+    });
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "tasks-title",
             CardHeading { icon: "tasks", title: "Today’s To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
-                match result.as_ref() {
-                    Some(Ok(data)) => rsx! {
-                        if tasks.is_empty() { p { class: "empty-tasks", "No tasks due today." } }
-                        ul { class: "item-list task-list",
-                            for task in tasks.into_iter().take(4) {
-                                li { key: "{task.id}", class: if task.status == "completed" { "list-row is-done" } else { "list-row" },
-                                    StatusMark { done: task.status == "completed" }
-                                    div { class: "row-copy",
-                                        span { class: "row-title", "{task.title}" }
-                                        span { class: "row-note",
-                                            if task.status == "completed" { "Completed" }
-                                            else if task.due < data.today { "Overdue · {task.due}" }
-                                            else { "Today" }
-                                        }
-                                    }
-                                    span { class: "assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
-                                }
+                if refresh_failed() {
+                    p { class: "form-error", role: "alert", "Your change was saved, but the to-dos could not refresh. Reload the page to try again." }
+                } else if !error().is_empty() {
+                    p { class: "form-error", role: "alert", "{error}" }
+                }
+                if let Some(data) = current {
+                    if tasks.is_empty() { p { class: "empty-tasks", "No tasks due today." } }
+                    ul { class: "item-list task-list",
+                        for task in tasks.into_iter().take(4) {
+                            TaskPreviewRow { key: "{task.id}", task: task.clone(),
+                                overdue: task.due < data.today, disabled: pending() || refresh_failed(),
+                                failed_checkbox: failed_checkbox(), on_toggle: toggle,
                             }
                         }
-                    },
-                    Some(Err(_)) => rsx! { p { role: "alert", "Could not load tasks. Reload to try again." } },
-                    None => rsx! { p { "Loading tasks…" } },
+                    }
+                } else if matches!(result.as_ref(), Some(Err(_))) {
+                    p { role: "alert", "Could not load tasks. Reload to try again." }
+                } else {
+                    p { "Loading tasks…" }
                 }
             }
             Link { class: "card-page-link", to: Route::Todos {}, "View all to-dos" }
+        }
+    }
+}
+
+#[component]
+fn TaskPreviewRow(
+    task: Task,
+    overdue: bool,
+    disabled: bool,
+    failed_checkbox: (Option<i64>, usize),
+    on_toggle: EventHandler<(i64, bool)>,
+) -> Element {
+    let id = task.id;
+    let completed = task.status == "completed";
+    let (failed_id, revision) = failed_checkbox;
+    let revision = if failed_id == Some(id) { revision } else { 0 };
+    rsx! {
+        li { class: if completed { "list-row is-done" } else { "list-row" },
+            label { class: "task-check-target",
+                // A keyed child lets a rejected change replace the browser's toggled input.
+                for revision in [revision] {
+                    input { key: "{revision}", r#type: "checkbox", checked: completed,
+                        disabled: disabled || (completed && !task.can_reopen),
+                        aria_label: if completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
+                        onchange: move |event| on_toggle.call((id, event.checked())),
+                    }
+                }
+            }
+            div { class: "row-copy",
+                span { class: "row-title", "{task.title}" }
+                span { class: "row-note",
+                    if completed { "Completed" }
+                    else if overdue { "Overdue · {task.due}" }
+                    else { "Today" }
+                }
+            }
+            span { class: "assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
         }
     }
 }
