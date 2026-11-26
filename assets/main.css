@@ -177,6 +177,17 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .recipe-subsection h3 { margin: 0; font-size: 1rem; }
 .recipe-text { white-space: pre-wrap; }
 .recipe-action { display: inline-block; padding: 10px 14px; border-radius: 8px; background: var(--blue); color: var(--blue-ink); }
+.recipe-shopping-feedback p { margin: 8px 0 0; color: var(--blue-ink); font-size: 0.875rem; }
+.recipe-shopping-picker { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); }
+.recipe-shopping-picker::backdrop { background: rgb(20 36 46 / 55%); }
+.recipe-shopping-picker h2 { margin: 0 0 12px; }
+.recipe-shopping-picker fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.recipe-shopping-section + .recipe-shopping-section { margin-top: 12px; }
+.recipe-shopping-section h3 { margin: 0; font-size: 1rem; }
+.recipe-shopping-section label { display: flex; align-items: baseline; gap: 8px; padding-block: 7px; }
+.recipe-shopping-section input { flex: 0 0 auto; }
+.recipe-shopping-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.recipe-shopping-actions .primary-button { margin: 0; }
 .recipe-editor { container: recipe-editor / inline-size; }
 .recipe-editor fieldset { min-width: 0; margin: 0; }
 .recipe-editor .recipe-editor-fields { border: 0; padding: 0; }

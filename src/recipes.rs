@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 mod editor;
 pub(super) use editor::{EditRecipe, NewRecipe};
+mod shopping_picker;
 
 #[cfg(feature = "server")]
 mod storage;
@@ -183,7 +184,7 @@ fn RecipeDetailContent(id: i64) -> Element {
                     document::Title { "Lavemill · {recipe.contents.title}" }
                     h1 { "{recipe.contents.title}" }
                     Link { class: "recipe-action", to: Route::EditRecipe { id }, "Edit recipe" }
-                    RecipeMethod { contents: recipe.contents.clone() }
+                    RecipeMethod { id, revision: recipe.revision, contents: recipe.contents.clone() }
                 },
                 Some(Ok(None)) => rsx! { h1 { "Recipe not found" } },
                 Some(Err(_)) => rsx! { p { role: "alert", "Could not load this recipe. Reload to try again." } },
@@ -194,7 +195,7 @@ fn RecipeDetailContent(id: i64) -> Element {
 }
 
 #[component]
-fn RecipeMethod(contents: RecipeContents) -> Element {
+fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
     let step_numbers = contents.steps.iter().scan(1, |start, section| {
         let current = *start;
         *start += section.entries.len();
@@ -204,6 +205,13 @@ fn RecipeMethod(contents: RecipeContents) -> Element {
         div { class: "recipe-method",
             section {
                 h2 { "Ingredients" }
+                if contents.ingredients.iter().any(|section| !section.entries.is_empty()) {
+                    shopping_picker::ShoppingPicker {
+                        id,
+                        revision,
+                        sections: contents.ingredients.clone(),
+                    }
+                }
                 for section in &contents.ingredients {
                     div { class: if section.heading.is_some() { "recipe-subsection" },
                         if let Some(heading) = &section.heading { h3 { "{heading}" } }
