@@ -18,7 +18,7 @@
 body { margin: 0; }
 a { color: inherit; }
 svg { display: block; flex-shrink: 0; }
-:is(a, button, input, select):focus-visible { outline: 3px solid var(--blue-ink); outline-offset: 4px; border-radius: 5px; }
+:is(a, button, input, select, textarea):focus-visible { outline: 3px solid var(--blue-ink); outline-offset: 4px; border-radius: 5px; }
 .skip-link { position: absolute; top: 12px; left: 12px; z-index: 2; padding: 12px 18px; background: var(--surface); transform: translateY(-160%); }
 .skip-link:focus { transform: translateY(0); }
 .site-header { background: rgba(255, 255, 255, 0.72); border-bottom: 1px solid var(--line); }
@@ -166,6 +166,45 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .form-feedback:empty { display: none; }
 
 .shopping-page { max-width: 920px; }
+.recipes-page { max-width: 1000px; overflow-wrap: anywhere; }
+.recipe-cards { list-style: none; padding: 0; display: grid; gap: 12px; }
+.recipe-card { display: block; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-weight: 650; }
+.recipe-method { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 24px; }
+.recipe-method > section { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 18px; }
+.recipe-method :is(ul, ol) { margin-block: 0; padding-inline-start: 1.5rem; }
+.recipe-method li { margin-block: 8px; }
+.recipe-subsection { border-inline-start: 2px solid var(--line); margin-block: 16px; margin-inline-start: 0.5rem; padding-inline-start: 0.9rem; }
+.recipe-subsection h3 { margin: 0; font-size: 1rem; }
+.recipe-text { white-space: pre-wrap; }
+.recipe-action { display: inline-block; padding: 10px 14px; border-radius: 8px; background: var(--blue); color: var(--blue-ink); }
+.recipe-editor { container: recipe-editor / inline-size; }
+.recipe-editor fieldset { min-width: 0; margin: 0; }
+.recipe-editor .recipe-editor-fields { border: 0; padding: 0; }
+.recipe-editor-columns { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); align-items: start; gap: 24px; margin-block: 24px; }
+.recipe-editor-section { display: grid; gap: 10px; container-type: inline-size; }
+.recipe-editor-section h2 { margin: 0 0 2px; }
+.recipe-editor .recipe-editor-subsection { display: grid; gap: 10px; margin-inline-start: 0.5rem; padding: 0; padding-inline-start: 0.9rem; border: 0; border-inline-start: 2px solid var(--line); }
+.recipe-editor-subsection > button { justify-self: start; }
+.recipe-editor label { display: grid; gap: 6px; }
+.recipe-editor :is(input, textarea) { width: 100%; min-width: 0; }
+.recipe-editor textarea { min-height: 44px; padding: 10px 12px; border: 1px solid #bbc8ce; border-radius: 8px; color: var(--ink); background: var(--surface); font: inherit; resize: vertical; }
+.recipe-editor-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; }
+.recipe-editor-ingredient { display: grid; grid-template-columns: minmax(0, 1fr) min(36%, 7rem); gap: 8px; }
+.recipe-editor-step { display: grid; gap: 6px; }
+.recipe-editor-actions, .recipe-order-buttons { display: flex; gap: 6px; }
+.recipe-editor-actions { flex-wrap: wrap; }
+.recipe-order-buttons button { width: 2.25rem; padding: 0; border: 1px solid transparent; color: var(--muted); background: transparent; }
+.recipe-order-buttons button:hover:not(:disabled) { border-color: var(--line); color: var(--blue-ink); background: var(--surface); }
+.recipe-order-buttons button:disabled { opacity: 0.45; }
+@media (max-width: 680px) {
+    .recipe-method { grid-template-columns: minmax(0, 1fr); }
+}
+@container recipe-editor (max-width: 580px) {
+    .recipe-editor-columns { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 340px) {
+    .recipe-editor-ingredient { grid-template-columns: minmax(0, 1fr); }
+}
 .shopping-heading { margin-bottom: 24px; }
 .shopping-heading h1 { margin: 0; font-size: 1.75rem; font-weight: 650; letter-spacing: -0.04em; }
 .shopping-groups { display: grid; gap: 22px; }
