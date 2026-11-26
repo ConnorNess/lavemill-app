@@ -52,17 +52,9 @@ enum SaveRecipe {
     Conflict,
 }
 
-#[cfg(feature = "server")]
-fn require_member() -> Result<(), ServerFnError> {
-    dioxus::fullstack::FullstackContext::current()
-        .and_then(|context| context.extension::<crate::auth::Viewer>())
-        .map(|_| ())
-        .ok_or_else(|| ServerFnError::new("Sign in to continue."))
-}
-
 #[get("/api/recipes")]
 async fn list_recipes() -> Result<Vec<RecipeCard>, ServerFnError> {
-    require_member()?;
+    crate::auth::require_member()?;
     crate::auth::server::run_blocking(|| {
         storage::list(&crate::auth::server::connection()?).map_err(crate::accounts::database_error)
     })
@@ -72,7 +64,7 @@ async fn list_recipes() -> Result<Vec<RecipeCard>, ServerFnError> {
 
 #[get("/api/recipes/:id")]
 async fn get_recipe(id: i64) -> Result<Option<Recipe>, ServerFnError> {
-    require_member()?;
+    crate::auth::require_member()?;
     crate::auth::server::run_blocking(move || {
         storage::get(&mut crate::auth::server::connection()?, id)
             .map_err(crate::accounts::database_error)
@@ -83,7 +75,7 @@ async fn get_recipe(id: i64) -> Result<Option<Recipe>, ServerFnError> {
 
 #[post("/api/recipes/create")]
 async fn create_recipe(contents: RecipeContents) -> Result<SaveRecipe, ServerFnError> {
-    require_member()?;
+    crate::auth::require_member()?;
     save_recipe(contents, storage::create).await
 }
 
@@ -93,7 +85,7 @@ async fn update_recipe(
     revision: i64,
     contents: RecipeContents,
 ) -> Result<SaveRecipe, ServerFnError> {
-    require_member()?;
+    crate::auth::require_member()?;
     save_recipe(contents, move |db, contents| {
         storage::update(db, id, revision, contents)
     })

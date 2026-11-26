@@ -10,7 +10,17 @@ pub struct Viewer {
 
 #[get("/api/session")]
 pub async fn current_viewer() -> Result<Option<Viewer>, ServerFnError> {
-    Ok(dioxus::fullstack::FullstackContext::current().and_then(|context| context.extension()))
+    Ok(request_viewer())
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn request_viewer() -> Option<Viewer> {
+    dioxus::fullstack::FullstackContext::current().and_then(|context| context.extension())
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn require_member() -> Result<Viewer, ServerFnError> {
+    request_viewer().ok_or_else(|| ServerFnError::new("Sign in to continue."))
 }
 
 #[component]

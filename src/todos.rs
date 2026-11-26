@@ -63,7 +63,7 @@ pub(crate) enum Change {
 
 #[get("/api/todos")]
 async fn list_tasks() -> Result<Tasks, ServerFnError> {
-    require_member()?;
+    crate::auth::require_member()?;
     crate::auth::server::run_blocking(|| {
         let today = crate::todo_storage::household_date()?;
         crate::todo_storage::list(&mut crate::auth::server::connection()?, today)
@@ -74,7 +74,7 @@ async fn list_tasks() -> Result<Tasks, ServerFnError> {
 
 #[post("/api/todos/change")]
 async fn change_task(change: Change) -> Result<Option<String>, ServerFnError> {
-    let actor = require_member()?;
+    let actor = crate::auth::require_member()?.id;
     let result = crate::auth::server::run_blocking(move || {
         let today = crate::todo_storage::household_date()?;
         crate::todo_storage::apply(
@@ -86,14 +86,6 @@ async fn change_task(change: Change) -> Result<Option<String>, ServerFnError> {
     })
     .await;
     Ok(result.err().map(str::to_owned))
-}
-
-#[cfg(feature = "server")]
-fn require_member() -> Result<i64, ServerFnError> {
-    dioxus::fullstack::FullstackContext::current()
-        .and_then(|context| context.extension::<crate::auth::Viewer>())
-        .map(|viewer| viewer.id)
-        .ok_or_else(|| ServerFnError::new("Sign in to continue."))
 }
 
 async fn save(change: Change) -> Result<(), String> {
