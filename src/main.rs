@@ -154,11 +154,11 @@ fn Home() -> Element {
             document::Title { "Lavemill · Home" }
             h1 { class: "sr-only", "Home" }
             homelab::Shortcuts {}
+            activity::ActivitySection {}
             div { class: "dashboard-grid",
                 TasksCard {}
                 ShoppingCard {}
                 CalendarCard {}
-                activity::ActivityCard {}
             }
         }
     }
