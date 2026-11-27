@@ -293,13 +293,17 @@ pub mod server {
                 || path.starts_with("/api/calendar/")
             {
                 Self::Calendar
-            } else if ["/api/todos", "/api/shopping", "/api/recipes"]
-                .iter()
-                .any(|prefix| {
-                    path.strip_prefix(prefix)
-                        .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
-                })
-            {
+            } else if [
+                "/api/todos",
+                "/api/shopping",
+                "/api/recipes",
+                "/api/homelab",
+            ]
+            .iter()
+            .any(|prefix| {
+                path.strip_prefix(prefix)
+                    .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('/'))
+            }) {
                 Self::HouseholdApi
             } else if path == "/login" || path.starts_with("/auth/") {
                 Self::PublicAuth
@@ -383,6 +387,8 @@ pub mod server {
             ("/api/todos", HouseholdApi),
             ("/api/shopping/change", HouseholdApi),
             ("/api/recipes/42", HouseholdApi),
+            ("/api/homelab/shortcuts", HouseholdApi),
+            ("/api/homelab-extra/shortcuts", Other),
             ("/api/todos-extra", Other),
             ("/api/calendar/view", Calendar),
             ("/calendar/google/callback", Calendar),
