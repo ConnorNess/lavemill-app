@@ -263,7 +263,7 @@ pub(super) fn Todos() -> Element {
     let result = data.read();
     rsx! {
         document::Title { "Lavemill · To-dos" }
-        main { id: "main", class: "dashboard todos-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page todos-page", tabindex: "-1",
             div { class: "todos-heading", h1 { "To-dos" } }
             match result.as_ref() {
                 Some(Ok(data)) => rsx! {
@@ -291,7 +291,7 @@ pub(super) fn Todos() -> Element {
 #[component]
 fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
     rsx! {
-        section { class: "task-group", aria_label: group.title(),
+        section { class: "task-group surface-panel", aria_label: group.title(),
             div { class: "task-group-heading",
                 h2 { class: if group == Group::Overdue { "overdue" } else { "" }, "{group.title()}" }
                 span { class: "count-badge", "{tasks.len()}" }
@@ -423,7 +423,7 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
     let mut feedback = use_signal(String::new);
     let selected_assignee = assignee().map(|id| id.to_string()).unwrap_or_default();
     rsx! {
-        section { class: "add-task-panel", aria_labelledby: "add-task-heading",
+        section { class: "add-task-panel surface-panel", aria_labelledby: "add-task-heading",
             h2 { id: "add-task-heading", "Add a task" }
             form { onsubmit: move |event| {
                 event.prevent_default();

@@ -206,7 +206,7 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 .home-dashboard .card-body { padding: 0 26px 22px; }
 .home-dashboard .card-body .list-row { padding-block: 10px; }
 @media (forced-colors: none) {
-    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"] {
+    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"] {
         --checkbox-green: rgb(19 91 67 / 76%);
         appearance: none;
         display: grid;
@@ -217,10 +217,10 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
         border-radius: 1px;
         transform: rotate(45deg);
     }
-    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked {
+    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked {
         background: var(--checkbox-green) padding-box;
     }
-    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked::before {
+    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked::before {
         content: "";
         width: 7px;
         height: 4px;
@@ -228,7 +228,7 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
         border-width: 0 0 2px 2px;
         transform: rotate(-90deg);
     }
-    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"]:disabled { opacity: 0.55; }
+    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:disabled { opacity: 0.55; }
 }
 .home-dashboard .card-page-link { display: none; }
 @media (max-width: 600px) {
@@ -361,13 +361,15 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .card-page-link { display: block; margin-top: auto; padding: 16px 22px; border-top: 1px solid var(--line); color: var(--blue-ink); font-size: 0.875rem; text-underline-offset: 4px; }
 .todos-page { max-width: 1180px; }
 .todos-heading { margin-bottom: 26px; }
-.todos-heading h1 { margin: 0; font-size: 1.75rem; font-weight: 650; letter-spacing: -0.04em; }
 .mock-note { margin: 8px 0 0; font-size: 0.875rem; color: var(--muted); }
 .todos-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
 .task-groups { min-width: 0; display: grid; gap: 20px; }
-.task-group, .add-task-panel { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 3px 14px #283d4809; }
+.add-task-panel { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 3px 14px #283d4809; }
 .task-group-heading { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .task-group-heading .count-badge { margin-left: auto; }
+.task-group-heading .overdue { color: #8d4530; }
+.todos-page textarea { width: 100%; min-height: 4rem; padding: 10px 12px; border: 1px solid var(--field-border); background: var(--surface); color: var(--ink); font: inherit; resize: vertical; }
+.todos-page .task-check-target input { accent-color: var(--mint-focus); }
 .empty-tasks { margin: 0; padding: 20px 22px; font-size: 0.875rem; color: var(--muted); }
 .editable-task { display: flex; align-items: center; gap: 12px; padding: 16px 22px 16px 12px; }
 .editable-task + .editable-task { border-top: 1px solid var(--line); }
