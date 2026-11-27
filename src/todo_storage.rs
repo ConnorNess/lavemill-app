@@ -118,6 +118,14 @@ fn apply_change(
                 },
             );
         }
+        Change::Rename { id, title } => db.execute(
+            "UPDATE todos SET title = ?2
+             WHERE status = 'open' AND (id = ?1 OR EXISTS (
+                 SELECT 1 FROM todos AS renamed WHERE renamed.id = ?1 AND renamed.status = 'open'
+                 AND renamed.series_id = todos.series_id AND renamed.due < todos.due
+             ))",
+            params![id, validate_title(&title)?],
+        ),
         Change::Describe { id, description } => db.execute(
             "UPDATE todos SET description = NULLIF(?2, '') WHERE id = ?1 AND status = 'open'",
             params![id, description.trim()],
@@ -162,9 +170,7 @@ fn create_task(
         assignee,
         repeat,
     } = task;
-    if title.trim().is_empty() {
-        return Err("Enter a task title.");
-    }
+    let title = validate_title(&title)?;
     let date = due
         .parse::<NaiveDate>()
         .map_err(|_| "Choose a valid due date.")?;
@@ -191,7 +197,7 @@ fn create_task(
         "INSERT INTO todos (title, description, due, reporter_id, assignee_id, series_id, next_due)
          VALUES (?1, NULLIF(?2, ''), ?3, ?4, ?5, ?6, ?7)",
         params![
-            title.trim(),
+            title,
             description.trim(),
             due,
             actor,
@@ -202,6 +208,14 @@ fn create_task(
     )
     .map_err(database_error)?;
     catch_up(db, today)
+}
+
+fn validate_title(title: &str) -> Result<&str, &'static str> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Enter a task title.");
+    }
+    Ok(title)
 }
 
 fn complete_task(db: &Connection, actor: i64, id: i64) -> Result<(), &'static str> {
@@ -425,6 +439,62 @@ mod tests {
         assert_eq!(tasks[4].due, "2026-12-21");
         assert!(apply(&mut db, after_downtime, 2, Change::Reopen { id: 2 }).is_err());
         assert_eq!(list(&mut db, after_downtime).unwrap().tasks.len(), 5);
+    }
+
+    #[test]
+    fn renames_open_occurrences_and_preserves_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("test.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        db.execute(
+            "INSERT INTO users VALUES (1, 'alex', 'Alex', 'One', 'test', 0)",
+            [],
+        )
+        .unwrap();
+        let today = "2026-11-23".parse().unwrap();
+        apply(
+            &mut db,
+            today,
+            1,
+            Change::Create {
+                title: "Muck out".into(),
+                description: "Bring gloves".into(),
+                due: "2026-11-23".into(),
+                assignee: Some(1),
+                repeat: Repeat::Weekly,
+            },
+        )
+        .unwrap();
+        apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
+        apply(&mut db, today, 1, Change::Reopen { id: 1 }).unwrap();
+        let rename = |id, title: &str| Change::Rename {
+            id,
+            title: title.into(),
+        };
+
+        assert_eq!(
+            apply(&mut db, today, 1, rename(1, " \t ")),
+            Err("Enter a task title.")
+        );
+        apply(&mut db, today, 1, rename(1, "  Clean the coop  ")).unwrap();
+        let tasks = list(&mut db, today).unwrap().tasks;
+        assert_eq!(tasks[0].title, "Clean the coop");
+        assert_eq!(tasks[1].title, "Clean the coop");
+        assert_eq!(tasks[0].description.as_deref(), Some("Bring gloves"));
+        assert_eq!(tasks[0].assignee_id, Some(1));
+
+        apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
+        assert!(apply(&mut db, today, 1, rename(1, "Past task")).is_err());
+        apply(&mut db, today, 1, rename(2, "Sweep the coop")).unwrap();
+        apply(&mut db, today, 1, Change::Complete { id: 2 }).unwrap();
+        let mut reopened = crate::database::open(&path).unwrap();
+        let tasks = list(&mut reopened, today).unwrap().tasks;
+        let titles: Vec<_> = tasks.iter().map(|task| task.title.as_str()).collect();
+        assert_eq!(
+            titles,
+            ["Clean the coop", "Sweep the coop", "Sweep the coop"]
+        );
     }
 
     #[test]

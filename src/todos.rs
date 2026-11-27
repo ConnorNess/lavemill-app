@@ -45,6 +45,10 @@ pub(crate) enum Change {
         assignee: Option<i64>,
         repeat: Repeat,
     },
+    Rename {
+        id: i64,
+        title: String,
+    },
     Describe {
         id: i64,
         description: String,
@@ -308,13 +312,20 @@ fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
     }
 }
 
+#[derive(Clone)]
+enum TaskDraft {
+    Title(String),
+    Description(String),
+}
+
 #[component]
 fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
     let mut data = use_context::<Resource<Result<Tasks, ServerFnError>>>();
     let mut error = use_signal(String::new);
     let mut pending = use_signal(|| false);
-    let mut draft = use_signal(|| None::<String>);
+    let mut draft = use_signal(|| None::<TaskDraft>);
     let id = task.id;
+    let initial_title = task.title.clone();
     let completed = task.status == "completed";
     let open = task.status == "open";
     let submit = Callback::new(move |change: Change| {
@@ -324,7 +335,7 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
         pending.set(true);
         spawn(async move {
             error.set(String::new());
-            let editing = matches!(&change, Change::Describe { .. });
+            let editing = matches!(&change, Change::Rename { .. } | Change::Describe { .. });
             match save(change).await {
                 Ok(()) => {
                     if editing {
@@ -359,23 +370,48 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                 time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
                 span { class: "row-note", "Reported by {task.reporter}" }
                 if let Some(description) = task.description.as_ref() { p { "{description}" } }
-                if let Some(description) = draft() {
-                    form { onsubmit: move |event| {
+                if let Some(edit) = draft() {
+                    form { class: "task-edit-form", onsubmit: move |event| {
                         event.prevent_default();
-                        if let Some(description) = draft() {
-                            submit.call(Change::Describe { id, description });
+                        match draft() {
+                            Some(TaskDraft::Title(title)) if !title.trim().is_empty() => submit.call(Change::Rename { id, title }),
+                            Some(TaskDraft::Description(description)) => submit.call(Change::Describe { id, description }),
+                            _ => (),
                         }
                     },
-                        label {
-                            "Description"
-                            textarea { value: "{description}", disabled: pending(), oninput: move |event| draft.set(Some(event.value())) }
+                        match edit {
+                            TaskDraft::Title(title) => rsx! {
+                                label {
+                                    "Task title"
+                                    input { r#type: "text", value: "{title}", disabled: pending(), required: true, autofocus: true,
+                                        oninput: move |event| draft.set(Some(TaskDraft::Title(event.value()))) }
+                                }
+                                div { class: "task-edit-actions",
+                                    button { r#type: "submit", disabled: pending() || title.trim().is_empty(), "Save title" }
+                                    button { r#type: "button", class: "secondary-button", disabled: pending(),
+                                        onclick: move |_| { draft.set(None); error.set(String::new()); }, "Cancel" }
+                                }
+                            },
+                            TaskDraft::Description(description) => rsx! {
+                                label {
+                                    "Description"
+                                    textarea { value: "{description}", disabled: pending(),
+                                        oninput: move |event| draft.set(Some(TaskDraft::Description(event.value()))) }
+                                }
+                                button { r#type: "submit", disabled: pending(), "Save description" }
+                            },
                         }
-                        button { r#type: "submit", disabled: pending(), "Save description" }
                     }
                 } else if open {
-                    button { r#type: "button", class: "undo-button", disabled: pending(),
-                        onclick: move |_| draft.set(Some(task.description.clone().unwrap_or_default())),
-                        "Edit description"
+                    div { class: "task-edit-actions",
+                        button { r#type: "button", class: "secondary-button", disabled: pending(),
+                            onclick: move |_| draft.set(Some(TaskDraft::Title(initial_title.clone()))),
+                            "Rename task"
+                        }
+                        button { r#type: "button", class: "secondary-button", disabled: pending(),
+                            onclick: move |_| draft.set(Some(TaskDraft::Description(task.description.clone().unwrap_or_default()))),
+                            "Edit description"
+                        }
                     }
                 }
                 if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
