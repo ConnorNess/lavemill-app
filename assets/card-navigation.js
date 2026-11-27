@@ -12,9 +12,9 @@ const pageKey = CSS.escape(page);
 const findCard = () => document.querySelector(`[data-card-page="${pageKey}"]`)
     ?.closest(".dashboard-card");
 const findHeaderAnchor = () => document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
-const openingUsers = page === "users" && !returningHome;
+const openingFromHeader = !returningHome && (page === "users" || page === "recipes");
 const interiorPage = document.querySelector("main#main.interior-page");
-const source = returningHome ? interiorPage : openingUsers ? findHeaderAnchor() : findCard();
+const source = returningHome ? interiorPage : openingFromHeader ? findHeaderAnchor() : findCard();
 if (!source || !document.startViewTransition ||
     matchMedia("(prefers-reduced-motion: reduce)").matches) {
     dioxus.send(true);
@@ -24,7 +24,8 @@ if (!source || !document.startViewTransition ||
 const bounds = source.getBoundingClientRect();
 const viewportWidth = root.clientWidth;
 const viewportHeight = root.clientHeight;
-const destinationSelector = returningHome ? "main.home-dashboard" : `main#main.${pageKey}-page`;
+const destinationPage = page === "recipes" ? "[data-recipes-index]" : `.${pageKey}-page`;
+const destinationSelector = returningHome ? "main.home-dashboard" : `main#main${destinationPage}`;
 const properties = ["--card-reveal-x", "--card-reveal-y", "--card-reveal-radius"];
 const taskSelector = "[data-task-transition-id]";
 const visibleTasks = new Set();
@@ -47,7 +48,7 @@ const nameTaskRow = (row) => {
     row.style.viewTransitionName = `home-card-task-${row.dataset.taskTransitionId}`;
     namedRows.push(row);
 };
-const outgoingPage = openingUsers ? interiorPage : null;
+const outgoingPage = openingFromHeader ? interiorPage : null;
 const outgoingClass = "home-card-source";
 
 root.classList.add(activeClass);
@@ -102,7 +103,9 @@ try {
             finish();
         };
         const observer = new MutationObserver(findPage);
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, {
+            childList: true, subtree: true, attributes: true, attributeFilter: ["data-recipes-index"],
+        });
         const timeout = setTimeout(() => {
             transition.skipTransition();
             finish();

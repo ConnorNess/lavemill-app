@@ -130,12 +130,7 @@ fn HouseholdLayout() -> Element {
         header { class: "site-header", "data-theme": theme.name(),
             div { class: "header-inner",
                 card_navigation::HomeLink {}
-                card_navigation::ThemePreviewTile { to: Route::Recipes {},
-                    Link { class: "header-tile recipes-link", to: Route::Recipes {}, "data-home-return-anchor": "recipes",
-                        Icon { kind: "recipes" }
-                        span { "Recipes" }
-                    }
-                }
+                card_navigation::RecipesLink {}
                 div { class: if account_open() { "account-menu is-open" } else { "account-menu" },
                     onkeydown: move |event| {
                         if event.key() == Key::Escape {

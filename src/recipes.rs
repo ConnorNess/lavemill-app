@@ -158,7 +158,7 @@ pub(super) fn Recipes() -> Element {
     let recipes = use_server_future(list_recipes)?;
     rsx! {
         document::Title { "Lavemill · Recipes" }
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipes-index": "",
             header { class: "recipe-heading",
                 h1 { "Recipes" }
                 Link { class: "recipe-action primary-button", to: Route::NewRecipe {}, "Add recipe" }

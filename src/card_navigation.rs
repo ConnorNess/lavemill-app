@@ -99,6 +99,33 @@ pub(crate) fn UsersLink() -> Element {
 }
 
 #[component]
+pub(crate) fn RecipesLink() -> Element {
+    let navigator = use_navigator();
+    let opening_recipes = use_route::<Route>() != (Route::Recipes {});
+    rsx! {
+        ThemePreviewTile { to: Route::Recipes {},
+            Link {
+                class: "header-tile recipes-link",
+                to: Route::Recipes {},
+                "data-home-return-anchor": "recipes",
+                onclick_only: opening_recipes,
+                onclick: move |_| {
+                    if opening_recipes {
+                        spawn(async move {
+                            if begin_transition("recipes", false).await {
+                                navigator.push(Route::Recipes {});
+                            }
+                        });
+                    }
+                },
+                crate::Icon { kind: "recipes" }
+                span { "Recipes" }
+            }
+        }
+    }
+}
+
+#[component]
 pub(crate) fn HomeLink() -> Element {
     let navigator = use_navigator();
     let page = match use_route::<Route>() {
