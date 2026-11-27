@@ -31,13 +31,22 @@ body:has(.home-dashboard) .brand-mark { background: rgb(234 250 243 / 85%); colo
 .dashboard { padding-top: 32px; padding-bottom: 40px; }
 body:has(.home-dashboard) { position: relative; min-height: 100vh; background: linear-gradient(125deg, #d4f0e6 0%, #bde7da 54%, #a7dbcc 100%) fixed; }
 body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; inset: 0; pointer-events: none; background-image: linear-gradient(0deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px), linear-gradient(90deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px); background-size: 82px 82px; animation: grid-drift 6s linear infinite; }
-.home-dashboard { --home-card-max-height: 24rem; position: relative; z-index: 1; isolation: isolate; display: flex; flex-direction: column; min-height: calc(100dvh - 96px); background: transparent; }
+.home-dashboard { --home-card-max-height: 24rem; --home-panel-shade: rgb(24 78 62 / 18%); --home-panel-tint: rgb(212 240 230 / 20%); position: relative; z-index: 1; isolation: isolate; display: flex; flex-direction: column; min-height: calc(100dvh - 96px); background: transparent; }
 .dashboard.home-dashboard { width: 100%; padding-inline: 0; }
 .home-dashboard > * { position: relative; z-index: 1; }
 .home-dashboard-layout { --home-gutter: calc(var(--dashboard-side-padding) + max(0px, (100% - var(--dashboard-max-width)) / 2)); --home-shortcuts-width: 148px; display: grid; flex: 1; grid-template-columns: var(--home-gutter) minmax(0, 1fr) calc(var(--home-gutter) + var(--home-shortcuts-width) + 22px); align-items: stretch; }
 .home-dashboard-content { grid-column: 2; display: flex; flex-direction: column; min-width: 0; }
 .home-dashboard .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: auto; }
-.home-dashboard .dashboard-card { position: relative; overflow: hidden; border: 0; border-radius: 18px; background: #bde7da; box-shadow: 0 7px 20px rgb(21 73 57 / 9%); transition: box-shadow 160ms ease; }
+.home-dashboard .dashboard-card {
+    position: relative;
+    overflow: hidden;
+    border: 0;
+    border-radius: 0;
+    background: linear-gradient(225deg, transparent 7px, var(--home-panel-tint) 7px),
+        linear-gradient(225deg, transparent 7px, var(--home-panel-shade) 7px);
+    box-shadow: 0 7px 20px rgb(21 73 57 / 9%);
+    transition: box-shadow 160ms ease;
+}
 .home-dashboard .dashboard-list-card:focus-visible { outline: 3px solid var(--blue-ink); outline-offset: 2px; }
 .home-dashboard .card-hit-area { position: absolute; z-index: 0; inset: 0; border-radius: inherit; }
 .home-dashboard .card-hit-area::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; border-radius: inherit; background: transparent; transition: width 160ms ease, background-color 160ms ease; }
@@ -82,8 +91,8 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 .homelab-shortcuts { --shortcut-size: 44px; --shortcut-corner: 10px; grid-column: 3; align-self: end; justify-self: end; width: var(--home-shortcuts-width); margin-inline-end: 15px; }
 .homelab-shortcut-rail { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; inline-size: var(--shortcut-size); margin-inline-start: auto; }
 .homelab-shortcut-rail::before, .homelab-shortcut-rail::after { content: ""; position: absolute; z-index: -1; pointer-events: none; clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
-.homelab-shortcut-rail::before { inset: 0; background: rgb(24 78 62 / 18%); }
-.homelab-shortcut-rail::after { --shortcut-corner: 9.4px; inset: 1px; background: rgb(212 240 230 / 20%); }
+.homelab-shortcut-rail::before { inset: 0; background: var(--home-panel-shade); }
+.homelab-shortcut-rail::after { --shortcut-corner: 9.4px; inset: 1px; background: var(--home-panel-tint); }
 .homelab-shortcut { --shortcut-width: var(--shortcut-size); position: relative; display: inline-flex; flex: 0 0 auto; flex-direction: row-reverse; align-items: center; gap: 10px; inline-size: var(--shortcut-width); min-block-size: var(--shortcut-size); overflow: hidden; padding: 5px; border: 1px solid transparent; border-radius: 0; color: #1e5948; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: inline-size 180ms ease, margin 180ms ease, background-color 160ms ease, color 160ms ease; }
 .homelab-shortcut:first-child { clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
 .homelab-shortcut:is(:hover, :focus-visible) { --shortcut-width: var(--home-shortcuts-width); z-index: 1; background: #135b43; color: #fff; }
