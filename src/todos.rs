@@ -187,7 +187,7 @@ pub(super) fn TasksCard() -> Element {
     });
     rsx! {
         section { class: "dashboard-card dashboard-list-card", tabindex: "0", aria_labelledby: "tasks-title",
-            Link { class: "card-hit-area", to: Route::Todos {}, aria_label: "Open to-dos" }
+            crate::card_navigation::HomeCardLink { to: Route::Todos {}, label: "Open to-dos", page: "todos" }
             CardHeading { icon: "tasks", title: "To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
                 if refresh_failed() {

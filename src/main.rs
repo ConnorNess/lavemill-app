@@ -8,6 +8,7 @@ mod calendar;
 use calendar::{Calendar, CalendarCard};
 #[cfg(feature = "server")]
 mod calendar_server;
+mod card_navigation;
 mod homelab;
 #[cfg(feature = "server")]
 mod household_time;

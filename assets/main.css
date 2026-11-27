@@ -243,6 +243,23 @@ svg { display: block; flex-shrink: 0; }
     :is(.home-dashboard, .interior-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:disabled { opacity: 0.55; }
 }
 .home-dashboard .card-page-link { display: none; }
+
+:root.home-card-transition { view-transition-name: none; }
+.home-card-transition .home-dashboard { view-transition-name: home-card-outgoing; }
+.home-card-transition .interior-page { view-transition-name: home-card-incoming; }
+::view-transition-group(home-card-incoming) { z-index: 1; }
+::view-transition-old(home-card-outgoing) {
+    animation: 360ms ease-out both home-card-fade;
+}
+::view-transition-new(home-card-incoming) {
+    animation: 360ms cubic-bezier(0.2, 0.7, 0.3, 1) both home-card-reveal;
+}
+@keyframes home-card-fade { to { opacity: 0; } }
+@keyframes home-card-reveal {
+    from { clip-path: circle(0 at var(--card-reveal-x) var(--card-reveal-y)); }
+    to { clip-path: circle(var(--card-reveal-radius) at var(--card-reveal-x) var(--card-reveal-y)); }
+}
+
 @media (max-width: 600px) {
     .home-dashboard .card-heading { flex-wrap: nowrap; padding: 16px 16px 8px; gap: 10px; }
     .home-dashboard .card-heading-copy { min-width: 0; }
