@@ -127,11 +127,8 @@ fn HouseholdLayout() -> Element {
         a { class: "skip-link", href: "#main", "Skip to content" }
         header { class: "site-header",
             div { class: "header-inner",
-                Link { class: "header-tile brand", to: Route::Home {},
-                    Icon { kind: "home" }
-                    span { "lavemill" }
-                }
-                Link { class: "header-tile recipes-link", to: Route::Recipes {},
+                card_navigation::HomeLink {}
+                Link { class: "header-tile recipes-link", to: Route::Recipes {}, "data-home-return-anchor": "recipes",
                     Icon { kind: "recipes" }
                     span { "Recipes" }
                 }
@@ -146,7 +143,7 @@ fn HouseholdLayout() -> Element {
                             aria_label: "Account options", aria_expanded: account_open(),
                             onclick: move |_| account_open.toggle(),
                         }
-                        Link { class: "account-icon", to: Route::Users {}, aria_label: "Users", title: "Users",
+                        Link { class: "account-icon", to: Route::Users {}, aria_label: "Users", title: "Users", "data-home-return-anchor": "users",
                             Icon { kind: "users" }
                         }
                     } else {

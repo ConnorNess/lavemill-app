@@ -260,6 +260,12 @@ svg { display: block; flex-shrink: 0; }
 ::view-transition-new(home-card-incoming) {
     animation: 360ms cubic-bezier(0.2, 0.7, 0.3, 1) both home-card-reveal;
 }
+:root.home-card-return::view-transition-new(home-card-outgoing) {
+    animation: 360ms ease-out reverse both home-card-fade;
+}
+:root.home-card-return::view-transition-old(home-card-incoming) {
+    animation: 360ms cubic-bezier(0.2, 0.7, 0.3, 1) reverse both home-card-reveal;
+}
 @keyframes home-card-fade { to { opacity: 0; } }
 @keyframes home-card-reveal {
     from { clip-path: circle(0 at var(--card-reveal-x) var(--card-reveal-y)); }
