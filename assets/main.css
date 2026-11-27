@@ -29,7 +29,18 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+body { position: relative; isolation: isolate; min-height: 100vh; margin: 0; background: var(--mint-background) fixed; }
+body::before {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    pointer-events: none;
+    background-image: linear-gradient(0deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px),
+        linear-gradient(90deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px);
+    background-size: 82px 82px;
+    animation: grid-drift 6s linear infinite;
+}
 a { color: inherit; }
 svg { display: block; flex-shrink: 0; }
 :is(a, button, input, select, textarea):focus-visible { outline: 3px solid var(--blue-ink); outline-offset: 4px; border-radius: 5px; }
@@ -114,7 +125,6 @@ svg { display: block; flex-shrink: 0; }
     .account-menu::before, .account-signout { transition: none; }
 }
 .dashboard { padding-top: 32px; padding-bottom: 40px; }
-body:has(.home-dashboard, .interior-page) { position: relative; min-height: 100vh; background: var(--mint-background) fixed; }
 .interior-page {
     --surface: var(--mint-surface);
     --line: var(--mint-line);
@@ -146,7 +156,6 @@ body:has(.home-dashboard, .interior-page) { position: relative; min-height: 100v
 .interior-page :is(.secondary-button, .undo-button):hover:not(:disabled) { background: var(--blue); }
 .interior-page :is(.primary-button, .secondary-button, .undo-button):disabled { opacity: 0.6; cursor: default; }
 .interior-page :is(a, button, input, select, textarea):focus-visible { outline-color: var(--mint-focus); }
-body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; inset: 0; pointer-events: none; background-image: linear-gradient(0deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px), linear-gradient(90deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px); background-size: 82px 82px; animation: grid-drift 6s linear infinite; }
 .home-dashboard { --home-card-max-height: 24rem; position: relative; z-index: 1; isolation: isolate; display: flex; flex-direction: column; min-height: calc(100dvh - var(--household-header-height)); background: transparent; }
 .dashboard.home-dashboard { width: 100%; padding-inline: 0; }
 .home-dashboard > * { position: relative; z-index: 1; }
@@ -241,7 +250,7 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 }
 @keyframes grid-drift { to { background-position: 82px 82px; } }
 @media (prefers-reduced-motion: reduce) {
-    body:has(.home-dashboard)::before { animation: none; }
+    body::before { animation: none; }
 }
 .login-page { display: grid; align-content: center; gap: 16px; max-width: 510px; min-height: 100dvh; }
 .login-brand { display: inline-flex; justify-self: start; align-items: center; gap: 8px; min-height: 44px; padding-inline: 12px 16px; background: var(--panel-top-right); color: var(--mint-ink); }
