@@ -198,7 +198,6 @@ fn CardHeading(
                 h2 { id, "{title}" }
             }
             span { class: "count-badge", "{count}" }
-            span { class: "card-go-arrow", aria_hidden: "true", "→" }
         }
     }
 }
