@@ -35,8 +35,8 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 .home-dashboard > * { position: relative; z-index: 1; }
 .home-dashboard-layout { display: grid; grid-template-columns: minmax(0, 1fr) 148px; align-items: start; gap: 22px; }
 .home-dashboard-content { min-width: 0; }
-.home-dashboard .dashboard-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
-.home-dashboard .dashboard-card { position: relative; overflow: hidden; border-color: rgb(24 78 62 / 56%); border-radius: 18px; background: #bde7da; box-shadow: 0 7px 20px rgb(21 73 57 / 9%); transition: box-shadow 160ms ease; }
+.home-dashboard .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.home-dashboard .dashboard-card { position: relative; overflow: hidden; border: 0; border-radius: 18px; background: #bde7da; box-shadow: 0 7px 20px rgb(21 73 57 / 9%); transition: box-shadow 160ms ease; }
 .home-dashboard .card-hit-area { position: absolute; z-index: 0; inset: 0; border-radius: inherit; }
 .home-dashboard .card-hit-area::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; border-radius: inherit; background: transparent; transition: width 160ms ease, background-color 160ms ease; }
 .home-dashboard .card-hit-area:hover::before, .home-dashboard .card-hit-area:focus-visible::before { width: 10px; background: #38cc91; }
@@ -330,7 +330,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 }
 
 @media (max-width: 899px) {
-    .dashboard-grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+    .dashboard-grid, .home-dashboard .dashboard-grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
     .dashboard { max-width: 680px; padding-top: 36px; }
     .home-dashboard-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
     .home-dashboard-content { grid-row: 2; }
