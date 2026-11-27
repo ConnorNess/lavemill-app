@@ -30,7 +30,7 @@ body:has(.home-dashboard) .site-header { position: relative; z-index: 1; backgro
 body:has(.home-dashboard) .brand-mark { background: rgb(234 250 243 / 85%); color: #1e5948; }
 .dashboard { padding-top: 32px; padding-bottom: 40px; }
 body:has(.home-dashboard) { position: relative; min-height: 100vh; background: linear-gradient(125deg, #d4f0e6 0%, #bde7da 54%, #a7dbcc 100%) fixed; }
-body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; inset: 0; pointer-events: none; background-image: repeating-linear-gradient(45deg, rgb(24 78 62 / 7%) 0 1px, transparent 1px 58px), repeating-linear-gradient(135deg, rgb(24 78 62 / 7%) 0 1px, transparent 1px 58px); background-size: 82px 82px; animation: diagonal-grid-drift 24s linear infinite; }
+body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; inset: 0; pointer-events: none; background-image: linear-gradient(0deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px), linear-gradient(90deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px); background-size: 82px 82px; animation: grid-drift 6s linear infinite; }
 .home-dashboard { position: relative; z-index: 1; isolation: isolate; min-height: calc(100dvh - 96px); background: transparent; }
 .home-dashboard > * { position: relative; z-index: 1; }
 .home-dashboard-layout { display: grid; grid-template-columns: minmax(0, 1fr) 148px; align-items: start; gap: 22px; }
@@ -63,7 +63,7 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 @media (prefers-reduced-motion: reduce) {
     .home-dashboard .dashboard-card, .home-dashboard .card-hit-area::before, .home-dashboard .card-go-arrow { transition: none; }
 }
-@keyframes diagonal-grid-drift { to { background-position: 82px 82px; } }
+@keyframes grid-drift { to { background-position: 82px 82px; } }
 @media (prefers-reduced-motion: reduce) {
     body:has(.home-dashboard)::before { animation: none; }
 }
