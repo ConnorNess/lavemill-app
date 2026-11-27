@@ -447,7 +447,7 @@ fn WeekGrid(days: Vec<CalendarDay>, today: String) -> Element {
                             key: "{day.date}",
                             aria_label: "{day.label}",
                             class: if day.date == today { "calendar-today" },
-                            "{day.weekday} {day.number}"
+                            span { class: "calendar-date-label", "{day.weekday} {day.number}" }
                         }
                     }
                 }
