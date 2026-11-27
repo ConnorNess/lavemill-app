@@ -147,6 +147,31 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 .home-dashboard .count-badge { margin-left: 0; border-radius: 999px; padding: 5px 12px; background: #135b43; color: #fff; }
 .home-dashboard .card-body { padding: 0 26px 22px; }
 .home-dashboard .card-body .list-row { padding-block: 10px; }
+@media (forced-colors: none) {
+    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"] {
+        --checkbox-green: rgb(19 91 67 / 76%);
+        appearance: none;
+        display: grid;
+        place-items: center;
+        width: 15px;
+        height: 15px;
+        border: 2px solid var(--checkbox-green);
+        border-radius: 1px;
+        transform: rotate(45deg);
+    }
+    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked {
+        background: var(--checkbox-green) padding-box;
+    }
+    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked::before {
+        content: "";
+        width: 7px;
+        height: 4px;
+        border: solid #eafaf3;
+        border-width: 0 0 2px 2px;
+        transform: rotate(-90deg);
+    }
+    .home-dashboard :is(.task-check-target, .shopping-check) input[type="checkbox"]:disabled { opacity: 0.55; }
+}
 .home-dashboard .card-page-link { display: none; }
 @media (max-width: 600px) {
     .home-dashboard .card-heading { flex-wrap: nowrap; padding: 16px 16px 8px; gap: 10px; }
