@@ -243,8 +243,10 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 @media (prefers-reduced-motion: reduce) {
     body:has(.home-dashboard)::before { animation: none; }
 }
-.login-page { max-width: 550px; }
-.login-page h1 { margin: 0 0 20px; font-size: 1.5rem; }
+.login-page { display: grid; align-content: center; gap: 16px; max-width: 510px; min-height: 100dvh; }
+.login-brand { display: inline-flex; justify-self: start; align-items: center; gap: 8px; min-height: 44px; padding-inline: 12px 16px; background: var(--panel-top-right); color: var(--mint-ink); }
+.login-page h1 { margin-bottom: 20px; }
+.login-page .primary-button { justify-self: start; }
 .users-page { max-width: 1050px; }
 .users-page h1 { margin-bottom: 24px; }
 .users-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 24px; align-items: start; }
