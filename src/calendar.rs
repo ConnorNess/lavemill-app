@@ -163,6 +163,7 @@ pub fn CalendarCard() -> Element {
     let agenda = agenda.read();
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "calendar-title",
+            Link { class: "card-hit-area", to: Route::Calendar { view: None, date: None, notice: None }, aria_label: "Open shared calendar" }
             CardHeading {
                 icon: "calendar",
                 title: "Shared Calendar",
@@ -251,7 +252,7 @@ pub fn Calendar(view: Option<String>, date: Option<String>, notice: Option<Strin
         _ => None,
     };
     rsx! {
-        main { id: "main", class: "dashboard calendar-page",
+        main { id: "main", class: "dashboard interior-page calendar-page", tabindex: "-1",
             document::Title { "Lavemill - Calendar" }
             div { class: "calendar-heading",
                 h1 { "Calendar" }
@@ -370,37 +371,38 @@ fn MonthGrid(
 ) -> Element {
     let selected_day = days.iter().find(|day| day.date == selected);
     rsx! {
-        div {
-            class: "calendar-month",
+        div { class: "calendar-month-frame surface-panel",
             role: "group",
             aria_label: "Month calendar",
-            for day in days.iter().take(7) {
-                div {
-                    key: "heading-{day.weekday}",
-                    class: "calendar-month-weekday",
-                    "{day.weekday}"
-                }
-            }
-            for day in &days {
-                button {
-                    key: "{day.date}",
-                    class: "calendar-month-day",
-                    class: if day.outside_month { "calendar-outside-month" },
-                    r#type: "button",
-                    aria_current: if day.date == today { "date" } else { "false" },
-                    aria_pressed: day.date == selected,
-                    aria_controls: "calendar-day-events",
-                    aria_label: "{day.label}, {day.events.len()} events",
-                    onclick: {
-                        let date = day.date.clone();
-                        move |_| on_select.call(date.clone())
-                    },
-                    span { class: "calendar-month-number", "{day.number}" }
-                    for (index , event) in day.events.iter().take(3).enumerate() {
-                        span { key: "{index}", class: "calendar-month-event", "{event.title}" }
+            div { class: "calendar-month",
+                for day in days.iter().take(7) {
+                    div {
+                        key: "heading-{day.weekday}",
+                        class: "calendar-month-weekday",
+                        "{day.weekday}"
                     }
-                    if day.events.len() > 3 {
-                        span { class: "calendar-month-more", "+{day.events.len() - 3} more" }
+                }
+                for day in &days {
+                    button {
+                        key: "{day.date}",
+                        class: "calendar-month-day",
+                        class: if day.outside_month { "calendar-outside-month" },
+                        r#type: "button",
+                        aria_current: if day.date == today { "date" } else { "false" },
+                        aria_pressed: day.date == selected,
+                        aria_controls: "calendar-day-events",
+                        aria_label: "{day.label}, {day.events.len()} events",
+                        onclick: {
+                            let date = day.date.clone();
+                            move |_| on_select.call(date.clone())
+                        },
+                        span { class: "calendar-month-number", "{day.number}" }
+                        for (index , event) in day.events.iter().take(3).enumerate() {
+                            span { key: "{index}", class: "calendar-month-event", "{event.title}" }
+                        }
+                        if day.events.len() > 3 {
+                            span { class: "calendar-month-more", "+{day.events.len() - 3} more" }
+                        }
                     }
                 }
             }
@@ -408,7 +410,7 @@ fn MonthGrid(
         if let Some(day) = selected_day {
             section {
                 id: "calendar-day-events",
-                class: "calendar-day-details",
+                class: "calendar-day-details surface-panel",
                 aria_labelledby: "calendar-day-title",
                 h3 { id: "calendar-day-title", "{day.label}" }
                 if day.events.is_empty() {
@@ -432,7 +434,7 @@ fn MonthGrid(
 fn WeekGrid(days: Vec<CalendarDay>, today: String) -> Element {
     rsx! {
         div {
-            class: "calendar-week-scroll",
+            class: "calendar-week-scroll surface-panel",
             role: "region",
             aria_label: "Hourly week calendar",
             tabindex: "0",
@@ -610,7 +612,7 @@ fn CalendarConnection(provider: Provider) -> Element {
     let name = provider.label();
     let key = provider.key();
     rsx! {
-        section { class: "add-task-panel calendar-settings",
+        section { class: "add-task-panel calendar-settings surface-panel",
             h2 { "{name}" }
             match status.as_ref() {
                 Some(Ok(ConnectionStatus::Connected { selected, shared, choices })) => {

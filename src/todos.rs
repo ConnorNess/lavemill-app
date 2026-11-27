@@ -142,12 +142,12 @@ pub(super) fn TasksCard() -> Element {
         .or_else(|| result.as_ref()?.as_ref().ok());
     let mut tasks = Vec::new();
     if let Some(data) = current {
-        tasks.extend(
-            data.tasks
-                .iter()
-                .filter(|task| task.due <= data.today && task.status != "failed"),
-        );
-        tasks.sort_by_key(|task| task.status == "completed");
+        tasks.extend(data.tasks.iter());
+        tasks.sort_by_key(|task| match task.status.as_str() {
+            "open" => 0,
+            "completed" => 1,
+            _ => 2,
+        });
     }
     let open = tasks.iter().filter(|task| task.status == "open").count();
     let toggle = Callback::new(move |(id, checked): (i64, bool)| {
@@ -186,8 +186,9 @@ pub(super) fn TasksCard() -> Element {
         });
     });
     rsx! {
-        section { class: "dashboard-card", aria_labelledby: "tasks-title",
-            CardHeading { icon: "tasks", title: "Today’s To-dos", id: "tasks-title", count: format!("{open} open") }
+        section { class: "dashboard-card dashboard-list-card", tabindex: "0", aria_labelledby: "tasks-title",
+            Link { class: "card-hit-area", to: Route::Todos {}, aria_label: "Open to-dos" }
+            CardHeading { icon: "tasks", title: "To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
                 if refresh_failed() {
                     p { class: "form-error", role: "alert", "Your change was saved, but the to-dos could not refresh. Reload the page to try again." }
@@ -195,11 +196,11 @@ pub(super) fn TasksCard() -> Element {
                     p { class: "form-error", role: "alert", "{error}" }
                 }
                 if let Some(data) = current {
-                    if tasks.is_empty() { p { class: "empty-tasks", "No tasks due today." } }
+                    if tasks.is_empty() { p { class: "empty-tasks", "No to-dos yet." } }
                     ul { class: "item-list task-list",
-                        for task in tasks.into_iter().take(4) {
+                        for task in tasks {
                             TaskPreviewRow { key: "{task.id}", task: task.clone(),
-                                overdue: task.due < data.today, disabled: pending() || refresh_failed(),
+                                today: data.today.clone(), disabled: pending() || refresh_failed(),
                                 failed_checkbox: failed_checkbox(), on_toggle: toggle,
                             }
                         }
@@ -210,7 +211,6 @@ pub(super) fn TasksCard() -> Element {
                     p { "Loading tasks…" }
                 }
             }
-            Link { class: "card-page-link", to: Route::Todos {}, "View all to-dos" }
         }
     }
 }
@@ -218,7 +218,7 @@ pub(super) fn TasksCard() -> Element {
 #[component]
 fn TaskPreviewRow(
     task: Task,
-    overdue: bool,
+    today: String,
     disabled: bool,
     failed_checkbox: (Option<i64>, usize),
     on_toggle: EventHandler<(i64, bool)>,
@@ -229,13 +229,15 @@ fn TaskPreviewRow(
     let revision = if failed_id == Some(id) { revision } else { 0 };
     rsx! {
         li { class: if completed { "list-row is-done" } else { "list-row" },
-            label { class: "task-check-target",
-                // A keyed child lets a rejected change replace the browser's toggled input.
-                for revision in [revision] {
-                    input { key: "{revision}", r#type: "checkbox", checked: completed,
-                        disabled: disabled || (completed && !task.can_reopen),
-                        aria_label: if completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
-                        onchange: move |event| on_toggle.call((id, event.checked())),
+            if task.status == "open" || completed {
+                label { class: "task-check-target",
+                    // A keyed child lets a rejected change replace the browser's toggled input.
+                    for revision in [revision] {
+                        input { key: "{revision}", r#type: "checkbox", checked: completed,
+                            disabled: disabled || (completed && !task.can_reopen),
+                            aria_label: if completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
+                            onchange: move |event| on_toggle.call((id, event.checked())),
+                        }
                     }
                 }
             }
@@ -243,8 +245,10 @@ fn TaskPreviewRow(
                 span { class: "row-title", "{task.title}" }
                 span { class: "row-note",
                     if completed { "Completed" }
-                    else if overdue { "Overdue · {task.due}" }
-                    else { "Today" }
+                    else if task.status == "failed" { "Failed · {task.due}" }
+                    else if task.due < today { "Overdue · {task.due}" }
+                    else if task.due == today { "Today" }
+                    else { "Due {task.due}" }
                 }
             }
             span { class: "assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
@@ -259,7 +263,7 @@ pub(super) fn Todos() -> Element {
     let result = data.read();
     rsx! {
         document::Title { "Lavemill · To-dos" }
-        main { id: "main", class: "dashboard todos-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page todos-page", tabindex: "-1",
             div { class: "todos-heading", h1 { "To-dos" } }
             match result.as_ref() {
                 Some(Ok(data)) => rsx! {
@@ -287,7 +291,7 @@ pub(super) fn Todos() -> Element {
 #[component]
 fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
     rsx! {
-        section { class: "task-group", aria_label: group.title(),
+        section { class: "task-group surface-panel", aria_label: group.title(),
             div { class: "task-group-heading",
                 h2 { class: if group == Group::Overdue { "overdue" } else { "" }, "{group.title()}" }
                 span { class: "count-badge", "{tasks.len()}" }
@@ -419,7 +423,7 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
     let mut feedback = use_signal(String::new);
     let selected_assignee = assignee().map(|id| id.to_string()).unwrap_or_default();
     rsx! {
-        section { class: "add-task-panel", aria_labelledby: "add-task-heading",
+        section { class: "add-task-panel surface-panel", aria_labelledby: "add-task-heading",
             h2 { id: "add-task-heading", "Add a task" }
             form { onsubmit: move |event| {
                 event.prevent_default();

@@ -30,7 +30,7 @@ pub(super) fn ShoppingPicker(
     rsx! {
         button {
             r#type: "button",
-            class: "recipe-action",
+            class: "recipe-action secondary-button",
             onclick: move |_| {
                 if pending() {
                     return;
@@ -55,7 +55,7 @@ pub(super) fn ShoppingPicker(
         if feedback().is_some() {
             Link { to: Route::Shopping {}, "View shopping list" }
         }
-        dialog { id: "recipe-shopping-picker", class: "recipe-shopping-picker",
+        dialog { id: "recipe-shopping-picker", class: "recipe-shopping-picker surface-panel",
             aria_labelledby: "recipe-shopping-picker-title",
             h2 { id: "recipe-shopping-picker-title", "Add to shopping list" }
             form {
@@ -128,6 +128,7 @@ pub(super) fn ShoppingPicker(
                     div { class: "recipe-shopping-actions",
                         button {
                             r#type: "button",
+                            class: "secondary-button",
                             onclick: move |_| { let _ = document::eval(CLOSE_PICKER); },
                             "Cancel"
                         }

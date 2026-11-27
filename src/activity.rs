@@ -28,12 +28,8 @@ async fn user_activity() -> Result<ActivitySnapshot, ServerFnError> {
     context
         .extension::<crate::auth::Viewer>()
         .ok_or_else(|| ServerFnError::new("Sign in to view activity."))?;
-    let tautulli: crate::tautulli::Tautulli = context
-        .extension()
-        .ok_or_else(|| ServerFnError::new("Activity unavailable."))?;
-    let steam: crate::steam::Steam = context
-        .extension()
-        .ok_or_else(|| ServerFnError::new("Activity unavailable."))?;
+    let tautulli = context.extension::<crate::tautulli::Tautulli>();
+    let steam = context.extension::<crate::steam::Steam>();
     let members = crate::auth::server::run_blocking(load_members)
         .await
         .map_err(ServerFnError::new)?;
@@ -43,14 +39,20 @@ async fn user_activity() -> Result<ActivitySnapshot, ServerFnError> {
         .collect();
     let (activity, games) = tokio::join!(
         async {
-            if tautulli.is_configured() && members.iter().any(|member| member.profile_id.is_some())
-            {
+            if let Some(tautulli) = tautulli.filter(|client| {
+                client.is_configured() && members.iter().any(|member| member.profile_id.is_some())
+            }) {
                 tautulli.activity().await.ok()
             } else {
                 None
             }
         },
-        steam.activity(steam_ids),
+        async {
+            match steam {
+                Some(steam) => steam.activity(steam_ids).await,
+                None => Default::default(),
+            }
+        },
     );
     let sessions = activity
         .as_ref()
@@ -68,7 +70,7 @@ fn activity_rows(
 ) -> Vec<ActivityRow> {
     members
         .iter()
-        .filter_map(|member| {
+        .map(|member| {
             let mut activities = Vec::with_capacity(3);
             if let Some(status) = plex_status(member.profile_id, sessions) {
                 activities.push(ActivityItem {
@@ -82,9 +84,6 @@ fn activity_rows(
                     status: format!("Playing {game}"),
                 });
             }
-            if activities.is_empty() {
-                return None;
-            }
             let name = if members
                 .iter()
                 .filter(|other| member.first.eq_ignore_ascii_case(&other.first))
@@ -95,11 +94,11 @@ fn activity_rows(
             } else {
                 member.first.clone()
             };
-            Some(ActivityRow {
+            ActivityRow {
                 member_id: member.id,
                 name,
                 activities,
-            })
+            }
         })
         .collect()
 }
@@ -170,59 +169,80 @@ fn plex_status(
 
 #[component]
 pub(super) fn ActivitySection() -> Element {
-    let snapshot = use_signal(|| None::<ActivitySnapshot>);
+    let initial = use_server_future(user_activity)?;
+    let refreshed = use_signal(|| None::<ActivitySnapshot>);
+    let refresh_failed = use_signal(|| false);
     #[cfg(target_arch = "wasm32")]
     use_future(move || {
-        let mut snapshot = snapshot;
+        let mut refreshed = refreshed;
+        let mut refresh_failed = refresh_failed;
         async move {
             loop {
-                snapshot.set(user_activity().await.ok());
                 gloo_timers::future::TimeoutFuture::new(30_000).await;
+                match user_activity().await {
+                    Ok(snapshot) => {
+                        refreshed.set(Some(snapshot));
+                        refresh_failed.set(false);
+                    }
+                    Err(_) => refresh_failed.set(true),
+                }
             }
         }
     });
-    let snapshot = snapshot.read();
-    let Some(snapshot) = snapshot
+    let initial = initial.read();
+    let refreshed = refreshed.read();
+    let Some(snapshot) = refreshed
         .as_ref()
-        .filter(|snapshot| !snapshot.rows.is_empty())
+        .or_else(|| initial.as_ref()?.as_ref().ok())
     else {
-        return rsx! {};
+        return rsx! {
+            section { class: "activity-section", aria_labelledby: "user-activity-heading",
+                h2 { id: "user-activity-heading", class: "sr-only", "Activity" }
+                p { class: "activity-placeholder", role: "status",
+                    if initial.is_some() {
+                        span { class: "activity-empty", "NO ACTIVITY" }
+                    } else {
+                        "Loading activity…"
+                    }
+                }
+            }
+        };
     };
-
     rsx! {
         section { class: "activity-section", aria_labelledby: "user-activity-heading",
-            div { class: "activity-heading",
-                h2 { id: "user-activity-heading", "Activity" }
-                span { class: "activity-live-count", "{snapshot.rows.len()} active" }
-            }
-            ul { class: "activity-list",
+            h2 { id: "user-activity-heading", class: "sr-only", "Activity" }
+            ul { class: "activity-list", tabindex: "0", aria_labelledby: "user-activity-heading",
                 for row in &snapshot.rows {
                     li { class: "activity-person", key: "{row.member_id}",
                         strong { class: "activity-person-name", "{row.name}" }
-                        ul { class: "activity-stream", aria_label: "{row.name} activity",
-                            for activity in &row.activities {
-                                li { class: "activity-item",
-                                    if activity.provider == "Plex" {
-                                        span { class: "activity-provider activity-provider-plex",
-                                            crate::Icon { kind: "Plex" }
-                                            "Plex"
-                                        }
-                                    }
-                                    if activity.provider == "Steam" {
-                                        span { class: "activity-provider activity-provider-steam",
-                                            img { src: STEAM_ICON, alt: "" }
-                                            "Steam"
-                                        }
-                                    }
-                                    if activity.provider != "Plex" && activity.provider != "Steam" {
-                                        span { class: "activity-provider activity-provider-other",
-                                            span { class: "activity-provider-initial", aria_hidden: "true",
-                                                "{activity.provider.chars().next().unwrap_or(' ')}"
+                        if refresh_failed() || row.activities.is_empty() {
+                            span { class: "activity-empty", "NO ACTIVITY" }
+                        } else {
+                            ul { class: "activity-stream", aria_label: "{row.name} activity",
+                                for activity in &row.activities {
+                                    li { class: "activity-item",
+                                        if activity.provider == "Plex" {
+                                            span { class: "activity-provider activity-provider-plex",
+                                                crate::Icon { kind: "Plex" }
+                                                "Plex"
                                             }
-                                            "{activity.provider}"
                                         }
+                                        if activity.provider == "Steam" {
+                                            span { class: "activity-provider activity-provider-steam",
+                                                img { src: STEAM_ICON, alt: "" }
+                                                "Steam"
+                                            }
+                                        }
+                                        if activity.provider != "Plex" && activity.provider != "Steam" {
+                                            span { class: "activity-provider activity-provider-other",
+                                                span { class: "activity-provider-initial", aria_hidden: "true",
+                                                    "{activity.provider.chars().next().unwrap_or(' ')}"
+                                                }
+                                                "{activity.provider}"
+                                            }
+                                        }
+                                        span { class: "activity-description", "{activity.status}" }
                                     }
-                                    span { class: "activity-description", "{activity.status}" }
                                 }
                             }
                         }
@@ -322,14 +342,14 @@ mod tests {
     }
 
     #[test]
-    fn omits_members_without_reported_activity() {
-        let mut members = [Member {
-            id: 1,
-            first: "Household".into(),
-            last: "Member".into(),
-            profile_id: Some(101),
-            steam_id: Some(76561198000000001),
-        }];
+    fn lists_idle_members_with_and_without_linked_profiles() {
+        let members = [1, 2, 3, 4].map(|id| Member {
+            id,
+            first: format!("Member {id}"),
+            last: "Household".into(),
+            profile_id: (id == 1).then_some(101),
+            steam_id: (id == 1).then_some(76561198000000001),
+        });
         let mut sessions = [Playback {
             user_id: 101,
             session_id: "1".into(),
@@ -337,13 +357,16 @@ mod tests {
             state: Other,
         }];
         let games = HashMap::new();
-        assert!(activity_rows(&members, Some(&[]), &games).is_empty());
-        assert!(activity_rows(&members, Some(&sessions), &games).is_empty());
-        assert!(activity_rows(&members, None, &games).is_empty());
+        for inactive_sessions in [None, Some(&sessions[..])] {
+            let rows = activity_rows(&members, inactive_sessions, &games);
+            assert_eq!(rows.len(), 4);
+            assert!(rows.iter().all(|row| row.activities.is_empty()));
+        }
 
         sessions[0].state = Playing;
-        members[0].profile_id = None;
-        members[0].steam_id = None;
-        assert!(activity_rows(&members, Some(&sessions), &games).is_empty());
+        let rows = activity_rows(&members, Some(&sessions), &games);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].activities[0].status, "Watching The Odyssey");
+        assert!(rows[1..].iter().all(|row| row.activities.is_empty()));
     }
 }

@@ -147,16 +147,18 @@ pub(super) fn Recipes() -> Element {
     let recipes = use_server_future(list_recipes)?;
     rsx! {
         document::Title { "Lavemill · Recipes" }
-        main { id: "main", class: "dashboard recipes-page", tabindex: "-1",
-            h1 { "Recipes" }
-            Link { class: "recipe-action", to: Route::NewRecipe {}, "Add recipe" }
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+            header { class: "recipe-heading",
+                h1 { "Recipes" }
+                Link { class: "recipe-action primary-button", to: Route::NewRecipe {}, "Add recipe" }
+            }
             match recipes.read().as_ref() {
                 Some(Ok(cards)) if cards.is_empty() => rsx! { p { "No recipes yet." } },
                 Some(Ok(cards)) => rsx! {
                     ul { class: "recipe-cards",
                         for card in cards {
                             li { key: "{card.id}",
-                                Link { class: "recipe-card", to: Route::RecipeDetail { id: card.id }, "{card.title}" }
+                                Link { class: "recipe-card surface-panel", to: Route::RecipeDetail { id: card.id }, "{card.title}" }
                             }
                         }
                     }
@@ -177,13 +179,15 @@ pub(super) fn RecipeDetail(id: i64) -> Element {
 fn RecipeDetailContent(id: i64) -> Element {
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
-        main { id: "main", class: "dashboard recipes-page", tabindex: "-1",
-            Link { to: Route::Recipes {}, "All recipes" }
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+            Link { class: "recipe-back-link", to: Route::Recipes {}, "All recipes" }
             match recipe.read().as_ref() {
                 Some(Ok(Some(recipe))) => rsx! {
                     document::Title { "Lavemill · {recipe.contents.title}" }
-                    h1 { "{recipe.contents.title}" }
-                    Link { class: "recipe-action", to: Route::EditRecipe { id }, "Edit recipe" }
+                    header { class: "recipe-heading",
+                        h1 { "{recipe.contents.title}" }
+                        Link { class: "recipe-action secondary-button", to: Route::EditRecipe { id }, "Edit recipe" }
+                    }
                     RecipeMethod { id, revision: recipe.revision, contents: recipe.contents.clone() }
                 },
                 Some(Ok(None)) => rsx! { h1 { "Recipe not found" } },
@@ -203,7 +207,7 @@ fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
     });
     rsx! {
         div { class: "recipe-method",
-            section {
+            section { class: "surface-panel",
                 h2 { "Ingredients" }
                 if contents.ingredients.iter().any(|section| !section.entries.is_empty()) {
                     shopping_picker::ShoppingPicker {
@@ -228,7 +232,7 @@ fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
                     }
                 }
             }
-            section {
+            section { class: "surface-panel",
                 h2 { "Steps" }
                 for (start, section) in step_numbers {
                     div { class: if section.heading.is_some() { "recipe-subsection" },

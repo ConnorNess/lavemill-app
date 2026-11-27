@@ -71,16 +71,18 @@ pub fn Shortcuts() -> Element {
 
     rsx! {
         nav { class: "homelab-shortcuts", aria_label: "Homelab",
-            for link in links {
-                a {
-                    key: "{link.service.name()}",
-                    class: "homelab-shortcut",
-                    href: "{link.url}",
-                    target: "_blank",
-                    rel: "noopener noreferrer",
-                    span { class: "card-icon", crate::Icon { kind: link.service.name() } }
-                    span { "{link.service.name()}" }
-                    span { class: "sr-only", " (opens in a new tab)" }
+            div { class: "homelab-shortcut-rail",
+                for link in links {
+                    a {
+                        key: "{link.service.name()}",
+                        class: "homelab-shortcut",
+                        href: "{link.url}",
+                        target: "_blank",
+                        rel: "noopener noreferrer",
+                        span { class: "card-icon", crate::Icon { kind: link.service.name() } }
+                        span { "{link.service.name()}" }
+                        span { class: "sr-only", " (opens in a new tab)" }
+                    }
                 }
             }
         }

@@ -32,10 +32,14 @@ pub fn Login(error: Option<String>) -> Element {
         _ => None,
     };
     rsx! {
-        main { id: "main", class: "dashboard login-page",
+        main { id: "main", class: "dashboard interior-page login-page",
             document::Title { "Lavemill · Sign in" }
-            section { class: "add-task-panel",
-                h1 { "Sign in to Lavemill" }
+            div { class: "brand login-brand",
+                crate::Icon { kind: "home" }
+                span { "lavemill" }
+            }
+            section { class: "add-task-panel surface-panel", aria_labelledby: "sign-in-heading",
+                h1 { id: "sign-in-heading", "Sign in" }
                 form { action: "/auth/login", method: "post",
                     label { r#for: "login-username", "Username" }
                     input { id: "login-username", name: "username", autocomplete: "username", maxlength: "40", required: true }
@@ -341,7 +345,8 @@ pub mod server {
                     }
                     request.extensions_mut().insert(state.calendars.clone());
                     request.extensions_mut().insert(state.tautulli.clone());
-                    if kind == RequestKind::ActivityApi {
+                    // Home also loads activity during its initial server render.
+                    if kind == RequestKind::ActivityApi || request.uri().path() == "/" {
                         request.extensions_mut().insert(state.steam.clone());
                     }
                 }
