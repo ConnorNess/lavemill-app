@@ -31,11 +31,11 @@ body:has(.home-dashboard) .brand-mark { background: rgb(234 250 243 / 85%); colo
 .dashboard { padding-top: 32px; padding-bottom: 40px; }
 body:has(.home-dashboard) { position: relative; min-height: 100vh; background: linear-gradient(125deg, #d4f0e6 0%, #bde7da 54%, #a7dbcc 100%) fixed; }
 body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; inset: 0; pointer-events: none; background-image: linear-gradient(0deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px), linear-gradient(90deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px); background-size: 82px 82px; animation: grid-drift 6s linear infinite; }
-.home-dashboard { position: relative; z-index: 1; isolation: isolate; min-height: calc(100dvh - 96px); background: transparent; }
+.home-dashboard { position: relative; z-index: 1; isolation: isolate; display: flex; flex-direction: column; min-height: calc(100dvh - 96px); background: transparent; }
 .home-dashboard > * { position: relative; z-index: 1; }
-.home-dashboard-layout { display: grid; grid-template-columns: minmax(0, 1fr) 148px; align-items: start; gap: 22px; }
-.home-dashboard-content { min-width: 0; }
-.home-dashboard .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.home-dashboard-layout { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr) 148px; align-items: stretch; gap: 22px; }
+.home-dashboard-content { display: flex; flex-direction: column; min-width: 0; }
+.home-dashboard .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: auto; }
 .home-dashboard .dashboard-card { position: relative; overflow: hidden; border: 0; border-radius: 18px; background: #bde7da; box-shadow: 0 7px 20px rgb(21 73 57 / 9%); transition: box-shadow 160ms ease; }
 .home-dashboard .card-hit-area { position: absolute; z-index: 0; inset: 0; border-radius: inherit; }
 .home-dashboard .card-hit-area::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; border-radius: inherit; background: transparent; transition: width 160ms ease, background-color 160ms ease; }
@@ -77,7 +77,7 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 @media (max-width: 680px) {
     .users-grid { grid-template-columns: minmax(0, 1fr); }
 }
-.homelab-shortcuts { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; width: 148px; margin: 12px 0; padding-inline-start: 14px; border-inline-start: 1px solid rgb(24 78 62 / 24%); }
+.homelab-shortcuts { align-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; width: 148px; margin: 0; padding-inline-start: 14px; border-inline-start: 1px solid rgb(24 78 62 / 24%); }
 .homelab-shortcut { display: inline-flex; align-items: center; gap: 10px; width: 44px; min-width: 44px; min-height: 44px; overflow: hidden; padding: 5px; border: 1px solid rgb(24 78 62 / 22%); border-radius: 12px; background: rgb(234 250 243 / 85%); color: #1e5948; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: width 180ms ease, background-color 160ms ease, color 160ms ease, border-color 160ms ease; }
 .homelab-shortcut:is(:hover, :focus-visible) { width: 100%; border-color: #135b43; background: #135b43; color: #fff; }
 .homelab-shortcut > span:nth-child(2) { opacity: 0; transition: opacity 120ms ease; }
