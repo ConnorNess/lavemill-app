@@ -25,6 +25,32 @@ pub(crate) fn HomeCardLink(to: Route, label: &'static str, page: &'static str) -
 }
 
 #[component]
+pub(crate) fn UsersLink() -> Element {
+    let navigator = use_navigator();
+    let opening_users = use_route::<Route>() != (Route::Users {});
+    rsx! {
+        Link {
+            class: "account-icon",
+            to: Route::Users {},
+            aria_label: "Users",
+            title: "Users",
+            "data-home-return-anchor": "users",
+            onclick_only: opening_users,
+            onclick: move |_| {
+                if opening_users {
+                    spawn(async move {
+                        if begin_transition("users", false).await {
+                            navigator.push(Route::Users {});
+                        }
+                    });
+                }
+            },
+            crate::Icon { kind: "users" }
+        }
+    }
+}
+
+#[component]
 pub(crate) fn HomeLink() -> Element {
     let navigator = use_navigator();
     let page = match use_route::<Route>() {

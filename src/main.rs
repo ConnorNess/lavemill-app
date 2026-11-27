@@ -143,9 +143,7 @@ fn HouseholdLayout() -> Element {
                             aria_label: "Account options", aria_expanded: account_open(),
                             onclick: move |_| account_open.toggle(),
                         }
-                        Link { class: "account-icon", to: Route::Users {}, aria_label: "Users", title: "Users", "data-home-return-anchor": "users",
-                            Icon { kind: "users" }
-                        }
+                        card_navigation::UsersLink {}
                     } else {
                         button { class: "account-icon", r#type: "button",
                             aria_label: "Account options", aria_expanded: account_open(),

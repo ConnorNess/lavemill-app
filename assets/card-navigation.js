@@ -11,7 +11,10 @@ if (root.classList.contains(activeClass)) {
 const pageKey = CSS.escape(page);
 const findCard = () => document.querySelector(`[data-card-page="${pageKey}"]`)
     ?.closest(".dashboard-card");
-const source = returningHome ? document.querySelector("main.interior-page") : findCard();
+const findHeaderAnchor = () => document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
+const openingUsers = page === "users" && !returningHome;
+const interiorPage = document.querySelector("main#main.interior-page");
+const source = returningHome ? interiorPage : openingUsers ? findHeaderAnchor() : findCard();
 if (!source || !document.startViewTransition ||
     matchMedia("(prefers-reduced-motion: reduce)").matches) {
     dioxus.send(true);
@@ -44,10 +47,13 @@ const nameTaskRow = (row) => {
     row.style.viewTransitionName = `home-card-task-${row.dataset.taskTransitionId}`;
     namedRows.push(row);
 };
+const outgoingPage = openingUsers ? interiorPage : null;
+const outgoingClass = "home-card-source";
 
 root.classList.add(activeClass);
 root.classList.toggle(returnClass, returningHome);
 try {
+    outgoingPage?.classList.add(outgoingClass);
     if (page === "todos") {
         for (const row of visibleTaskRows(source, returningHome ? null : source)) {
             visibleTasks.add(row.dataset.taskTransitionId);
@@ -56,6 +62,7 @@ try {
     }
 
     const transition = document.startViewTransition(() => new Promise((resolve) => {
+        outgoingPage?.classList.remove(outgoingClass);
         const finish = () => {
             observer.disconnect();
             clearTimeout(timeout);
@@ -69,7 +76,7 @@ try {
             let landingCard;
             if (returningHome) {
                 landingCard = findCard();
-                const anchor = landingCard ?? document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
+                const anchor = landingCard ?? findHeaderAnchor();
                 if (!anchor) return;
                 landingCard?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
                 anchorBounds = anchor.getBoundingClientRect();
@@ -106,6 +113,7 @@ try {
     await transition.finished;
 } finally {
     root.classList.remove(activeClass, returnClass);
+    outgoingPage?.classList.remove(outgoingClass);
     for (const property of properties) root.style.removeProperty(property);
     for (const row of namedRows) row.style.removeProperty("view-transition-name");
 }

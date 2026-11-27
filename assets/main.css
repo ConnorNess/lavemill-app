@@ -247,6 +247,7 @@ svg { display: block; flex-shrink: 0; }
 :root.home-card-transition { view-transition-name: none; }
 .home-card-transition .home-dashboard { view-transition-name: home-card-outgoing; }
 .home-card-transition .interior-page { view-transition-name: home-card-incoming; }
+.home-card-transition .interior-page.home-card-source { view-transition-name: home-card-outgoing; }
 :root.home-card-transition::view-transition-group(*) {
     z-index: 2;
     animation-duration: 400ms;
