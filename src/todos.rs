@@ -384,8 +384,10 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                             TaskDraft::Title(title) => rsx! {
                                 label {
                                     "Task title"
-                                    input { r#type: "text", value: "{title}", disabled: pending(), required: true, autofocus: true,
-                                        oninput: move |event| draft.set(Some(TaskDraft::Title(event.value()))) }
+                                    TodoTextField { icon: "tasks",
+                                        input { r#type: "text", value: "{title}", disabled: pending(), required: true, autofocus: true,
+                                            oninput: move |event| draft.set(Some(TaskDraft::Title(event.value()))) }
+                                    }
                                 }
                                 div { class: "task-edit-actions",
                                     button { r#type: "submit", disabled: pending() || title.trim().is_empty(), "Save title" }
@@ -396,8 +398,10 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                             TaskDraft::Description(description) => rsx! {
                                 label {
                                     "Description"
-                                    textarea { value: "{description}", disabled: pending(),
-                                        oninput: move |event| draft.set(Some(TaskDraft::Description(event.value()))) }
+                                    TodoTextField { icon: "description",
+                                        textarea { value: "{description}", disabled: pending(),
+                                            oninput: move |event| draft.set(Some(TaskDraft::Description(event.value()))) }
+                                    }
                                 }
                                 button { r#type: "submit", disabled: pending(), "Save description" }
                             },
@@ -450,6 +454,16 @@ fn MemberSelect(
 }
 
 #[component]
+fn TodoTextField(icon: &'static str, children: Element) -> Element {
+    rsx! {
+        span { class: "todo-field todo-text-field",
+            span { class: "todo-field-icon", crate::Icon { kind: icon } }
+            {children}
+        }
+    }
+}
+
+#[component]
 fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
     let mut data = use_context::<Resource<Result<Tasks, ServerFnError>>>();
     let mut title = use_signal(String::new);
@@ -487,12 +501,18 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
                 });
             },
                 label { r#for: "new-task-title", "Task" }
-                input { id: "new-task-title", name: "title", required: true, value: "{title}", disabled: pending(),
-                    oninput: move |event| title.set(event.value()) }
+                TodoTextField { icon: "tasks",
+                    input { id: "new-task-title", name: "title", required: true, value: "{title}", disabled: pending(),
+                        oninput: move |event| title.set(event.value()) }
+                }
                 label { r#for: "new-task-description", "Description (optional)" }
-                textarea { id: "new-task-description", value: "{description}", disabled: pending(), oninput: move |event| description.set(event.value()) }
+                TodoTextField { icon: "description",
+                    textarea { id: "new-task-description", value: "{description}", disabled: pending(), oninput: move |event| description.set(event.value()) }
+                }
                 label { r#for: "new-task-date", "Due date" }
-                input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", disabled: pending(), oninput: move |event| due.set(event.value()) }
+                span { class: "todo-field",
+                    input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", disabled: pending(), oninput: move |event| due.set(event.value()) }
+                }
                 label { r#for: "new-task-repeat", "Repeat" }
                 select { id: "new-task-repeat", disabled: pending(), onchange: move |event| repeat.set(match event.value().as_str() {
                     "daily" => Repeat::Daily,

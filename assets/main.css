@@ -573,7 +573,25 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .task-group-heading { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .task-group-heading .count-badge { margin-left: auto; }
 .task-group-heading .overdue { color: #8d4530; }
-.todos-page textarea { width: 100%; min-height: 4rem; padding: 10px 12px; border: 1px solid var(--field-border); background: var(--surface); color: var(--ink); font: inherit; resize: vertical; }
+.todo-field {
+    display: grid;
+    min-width: 0;
+    background: var(--theme-accent);
+    clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
+}
+.todo-text-field { grid-template-columns: 44px minmax(0, 1fr); }
+.todo-field-icon { display: grid; place-items: center; color: var(--theme-checkmark); }
+.todos-page .todo-field :is(input, textarea) {
+    width: 100%;
+    border: 1px solid var(--field-border);
+    border-radius: 0;
+    background: var(--theme-active);
+    color: var(--theme-ink);
+    font: inherit;
+    font-weight: 400;
+}
+.todo-field textarea { min-height: 4rem; padding: 10px 12px; resize: vertical; }
+.todos-page .todo-field :is(input, textarea):focus-visible { outline-offset: -6px; }
 .interior-page :is(.task-check-target, .shopping-check) input { accent-color: var(--theme-accent); }
 .empty-tasks { margin: 0; padding: 20px 22px; font-size: 0.875rem; color: var(--muted); }
 .editable-task { display: flex; align-items: center; gap: 12px; padding: 16px 22px 16px 12px; }
