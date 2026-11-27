@@ -251,19 +251,19 @@ pub fn Users() -> Element {
     let profiles = use_resource(plex_profiles);
     let result = users.read();
     rsx! {
-        main { id: "main", class: "dashboard users-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page users-page", tabindex: "-1",
             document::Title { "Lavemill · Users" }
             h1 { "Users" }
             match result.as_ref() {
                 Some(Ok(accounts)) => rsx! {
                     div { class: "users-grid",
-                        section { class: "add-task-panel",
+                        section { class: "add-task-panel surface-panel",
                             h2 { "Add user" }
                             UserDetails { on_saved: move |_| users.restart() }
                         }
                         div { class: "user-list",
                             for user in accounts {
-                                section { key: "{user.id}", class: "add-task-panel",
+                                section { key: "{user.id}", class: "add-task-panel surface-panel",
                                     h2 {
                                         if user.is_admin { "Your admin account" }
                                         else { "Account details" }
