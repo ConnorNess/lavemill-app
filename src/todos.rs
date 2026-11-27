@@ -418,7 +418,6 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                     }
                 } else {
                     div { class: "task-edit-line",
-                        span { class: "row-title", "{task.title}" }
                         if open {
                             TaskPencil { label: format!("Edit title of {}", task.title),
                                 disabled: pending() || active_draft.is_some(),
@@ -426,10 +425,9 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                                 on_edit: move |_| begin_edit.call(TaskDraft { field: TaskField::Title, value: initial_title.clone() }),
                             }
                         }
+                        span { class: "row-title", "{task.title}" }
                     }
                 }
-                time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
-                span { class: "row-note", "Reported by {task.reporter}" }
                 if let Some(TaskDraft { field: TaskField::Description, value }) = active_draft.as_ref() {
                     TaskInlineEditor { field: TaskField::Description, value: value.clone(), pending: pending(),
                         on_change: move |value| draft.set(Some(TaskDraft { field: TaskField::Description, value })),
@@ -437,11 +435,6 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                     }
                 } else if open || task.description.is_some() {
                     div { class: "task-edit-line task-description-line",
-                        if let Some(description) = task.description.as_ref() {
-                            p { class: "task-description", "{description}" }
-                        } else {
-                            span { class: "row-note", "No description" }
-                        }
                         if open {
                             TaskPencil { label: format!("Edit description of {}", task.title),
                                 disabled: pending() || active_draft.is_some(),
@@ -449,8 +442,15 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                                 on_edit: move |_| begin_edit.call(TaskDraft { field: TaskField::Description, value: initial_description.clone() }),
                             }
                         }
+                        if let Some(description) = task.description.as_ref() {
+                            p { class: "task-description", "{description}" }
+                        } else {
+                            span { class: "row-note", "No description" }
+                        }
                     }
                 }
+                time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
+                span { class: "row-note", "Reported by {task.reporter}" }
                 if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
             }
             if !open {
