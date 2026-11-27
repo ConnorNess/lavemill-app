@@ -107,6 +107,34 @@
     --panel-edge: #729ab8;
 }
 
+/* Animate the colours used inside the gradient and shared accents. */
+@property --theme-background-start { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-background-middle { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-background-end { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-ink { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-accent { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-surface { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-active { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-accent-hover { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-card-highlight { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-checkmark { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-muted { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-field-border { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-shade { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --theme-backdrop { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --panel-edge { syntax: "<color>"; inherits: true; initial-value: transparent; }
+
+@media (prefers-reduced-motion: no-preference) {
+    :root {
+        transition-property: --theme-background-start, --theme-background-middle, --theme-background-end,
+            --theme-ink, --theme-accent, --theme-surface, --theme-active, --theme-accent-hover,
+            --theme-card-highlight, --theme-checkmark, --theme-muted, --theme-field-border,
+            --theme-shade, --theme-backdrop, --panel-edge;
+        transition-duration: 180ms;
+        transition-timing-function: ease-out;
+    }
+}
+
 * { box-sizing: border-box; }
 body { position: relative; isolation: isolate; min-height: 100vh; margin: 0; background: linear-gradient(125deg, var(--theme-background-start) 0%, var(--theme-background-middle) 54%, var(--theme-background-end) 100%) fixed; }
 body::before {
