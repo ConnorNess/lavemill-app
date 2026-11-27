@@ -144,7 +144,25 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 .home-dashboard .card-heading { gap: 14px; padding: 20px 26px 10px; border-bottom: 0; }
 .home-dashboard .card-heading-copy { min-width: 0; }
 .home-dashboard .card-icon { background: transparent; color: #1e5948; }
-.home-dashboard .count-badge { margin-left: 0; border-radius: 999px; padding: 5px 12px; background: #135b43; color: #fff; }
+.home-dashboard .count-badge {
+    position: relative;
+    margin-left: 0;
+    border-radius: 0;
+    padding: 5px 9px;
+    background: transparent;
+    color: #1e5948;
+    white-space: nowrap;
+}
+.home-dashboard .count-badge::before, .home-dashboard .count-badge::after {
+    content: "";
+    position: absolute;
+    inset-block: 3px;
+    inline-size: 5px;
+    border: 0 solid rgb(19 91 67 / 76%);
+    border-block-width: 1px;
+}
+.home-dashboard .count-badge::before { inset-inline-start: 0; border-inline-start-width: 1px; }
+.home-dashboard .count-badge::after { inset-inline-end: 0; border-inline-end-width: 1px; }
 .home-dashboard .card-body { padding: 0 26px 22px; }
 .home-dashboard .card-body .list-row { padding-block: 10px; }
 @media (forced-colors: none) {
@@ -176,7 +194,6 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 @media (max-width: 600px) {
     .home-dashboard .card-heading { flex-wrap: nowrap; padding: 16px 16px 8px; gap: 10px; }
     .home-dashboard .card-heading-copy { min-width: 0; }
-    .home-dashboard .count-badge { margin-left: 0; }
     .home-dashboard .card-body { padding: 0 16px 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
