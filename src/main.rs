@@ -207,6 +207,7 @@ fn Icon(kind: &'static str) -> Element {
         "description" => "M4 5h16M4 10h16M4 15h16M4 20h10",
         "chevron-down" => "m6 9 6 6 6-6",
         "pencil" => "m14 6 4 4M4 20l5-1 11-11a2.8 2.8 0 0 0-4-4L5 15l-1 5Z",
+        "trash" => "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7",
         "check" => "m5 12 4 4L19 6",
         "close" => "m6 6 12 12M18 6 6 18",
         "shopping" => "M3 3h2l3 12h11l2-8H6M9 20h.01M18 20h.01",

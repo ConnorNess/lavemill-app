@@ -261,13 +261,19 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<i64>>) -> Elem
             } else {
                 ShoppingCheckbox { item: item.clone(), error }
                 div { class: "row-copy",
-                    span { class: "row-title", "{item.name}" }
+                    div { class: "shopping-item-title",
+                        span { class: "row-title", "{item.name}" }
+                        button { class: "shopping-item-action", r#type: "button", disabled: active_editor.is_some() || actions.disabled(),
+                            aria_label: "Edit {item.name}", onclick: move |_| editing.set(Some(id)),
+                            crate::Icon { kind: "pencil" }
+                        }
+                    }
                     if let Some(quantity) = item.quantity { span { class: "row-note", "{quantity}" } }
                 }
-                button { class: "edit-item-button", r#type: "button", disabled: active_editor.is_some() || actions.disabled(), aria_label: "Edit {item.name}",
-                    onclick: move |_| editing.set(Some(id)), "Edit" }
-                button { class: "remove-item-button", r#type: "button", aria_label: "Remove {item.name}",
-                    disabled: actions.disabled(), onclick: remove, "×" }
+                button { class: "shopping-item-action", r#type: "button", aria_label: "Remove {item.name}",
+                    disabled: actions.disabled(), onclick: remove,
+                    crate::Icon { kind: "trash" }
+                }
             }
             if !error().is_empty() { p { class: "form-error shopping-form-message", role: "alert", "{error}" } }
         }
@@ -344,8 +350,10 @@ fn ShoppingEditForm(
             div { class: "shopping-edit-actions",
                 button { class: "primary-button", r#type: "submit", disabled: actions.disabled(), "Save" }
                 button { class: "secondary-button", r#type: "button", disabled: (actions.pending)(), onclick: move |_| editing.set(None), "Cancel" }
-                button { class: "remove-item-button", r#type: "button", aria_label: "Remove {item.name}",
-                    disabled: actions.disabled(), onclick: move |event| on_remove.call(event), "×" }
+                button { class: "shopping-item-action", r#type: "button", aria_label: "Remove {item.name}",
+                    disabled: actions.disabled(), onclick: move |event| on_remove.call(event),
+                    crate::Icon { kind: "trash" }
+                }
             }
         }
     }
