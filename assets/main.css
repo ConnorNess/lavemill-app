@@ -835,7 +835,33 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .shopping-quick-add { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: end; gap: 16px; padding: 22px; margin-bottom: 24px; }
 .shopping-form-field { min-width: 0; display: grid; gap: 8px; }
 .shopping-form-field label { font-size: 0.875rem; font-weight: 600; }
+.shopping-page :is(.shopping-form-field input, .shopping-quick-add .primary-button, .shopping-edit-actions :is(.primary-button, .secondary-button)) {
+    border: 0;
+    border-radius: 0;
+    clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
+}
+.shopping-page :is(.shopping-form-field input, .shopping-edit-actions .secondary-button) {
+    color: var(--theme-ink);
+    background: var(--theme-active);
+}
 .shopping-form-field input { width: 100%; }
+.shopping-page :is(.shopping-quick-add, .shopping-edit-actions) .primary-button,
+.shopping-page .shopping-edit-actions .secondary-button:hover:not(:disabled) {
+    color: var(--theme-checkmark);
+    background: var(--theme-accent);
+}
+.shopping-page :is(.shopping-quick-add, .shopping-edit-actions) .primary-button:hover:not(:disabled) { background: var(--theme-accent-hover); }
+.shopping-page :is(.shopping-form-field input, .shopping-quick-add .primary-button, .shopping-edit-actions :is(.primary-button, .secondary-button)):focus-visible {
+    outline-offset: -6px;
+}
+.shopping-page :is(.shopping-quick-add, .shopping-edit-actions) .primary-button:focus-visible,
+.shopping-page .shopping-edit-actions .secondary-button:hover:focus-visible { outline-color: currentColor; }
+@media (forced-colors: active) {
+    .shopping-page :is(.shopping-form-field input, .shopping-quick-add .primary-button, .shopping-edit-actions :is(.primary-button, .secondary-button)) {
+        border: 1px solid currentColor;
+        clip-path: none;
+    }
+}
 .shopping-quick-add .primary-button { margin: 0; }
 .shopping-form-message { grid-column: 1 / -1; margin: 0; }
 .shopping-item-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; padding-block: 14px; }
