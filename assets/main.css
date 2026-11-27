@@ -109,7 +109,18 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 .home-dashboard { --home-card-max-height: 24rem; position: relative; z-index: 1; isolation: isolate; display: flex; flex-direction: column; min-height: calc(100dvh - var(--household-header-height)); background: transparent; }
 .dashboard.home-dashboard { width: 100%; padding-inline: 0; }
 .home-dashboard > * { position: relative; z-index: 1; }
-.home-dashboard-layout { --home-gutter: calc(var(--dashboard-side-padding) + max(0px, (100% - var(--dashboard-max-width)) / 2)); --home-shortcuts-width: 148px; display: grid; flex: 1; grid-template-columns: var(--home-gutter) minmax(0, 1fr) calc(var(--home-gutter) + var(--home-shortcuts-width) + 22px); align-items: stretch; }
+.home-dashboard-layout {
+    --home-gutter: calc(var(--dashboard-side-padding) + max(0px, (100% - var(--dashboard-max-width)) / 2));
+    --home-rail-width: 44px;
+    --home-rail-inset: 15px;
+    --home-rail-space: 0px;
+    --home-shortcuts-width: 148px;
+    display: grid;
+    flex: 1;
+    grid-template-columns: var(--home-gutter) minmax(0, 1fr) max(var(--home-gutter), var(--home-rail-space));
+    align-items: stretch;
+}
+.home-dashboard-layout:has(> .homelab-shortcuts) { --home-rail-space: calc(var(--home-rail-width) + var(--home-rail-inset) + 10px); }
 .home-dashboard-content { grid-column: 2; display: flex; flex-direction: column; min-width: 0; }
 .home-dashboard .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: auto; }
 .home-dashboard .dashboard-card {
@@ -160,8 +171,8 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 @media (max-width: 680px) {
     .users-grid { grid-template-columns: minmax(0, 1fr); }
 }
-.homelab-shortcuts { --shortcut-size: 44px; --shortcut-corner: 10px; grid-column: 3; align-self: end; justify-self: end; width: var(--home-shortcuts-width); margin-inline-end: 15px; }
-.homelab-shortcut-rail { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; inline-size: var(--shortcut-size); margin-inline-start: auto; }
+.homelab-shortcuts { --shortcut-size: var(--home-rail-width); --shortcut-corner: 10px; z-index: 2; grid-column: 3; align-self: end; justify-self: end; width: var(--home-shortcuts-width); margin-inline-end: var(--home-rail-inset); pointer-events: none; }
+.homelab-shortcut-rail { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; inline-size: var(--shortcut-size); margin-inline-start: auto; pointer-events: auto; }
 .homelab-shortcut-rail::before, .homelab-shortcut-rail::after { content: ""; position: absolute; z-index: -1; pointer-events: none; clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
 .homelab-shortcut-rail::before { inset: 0; background: var(--panel-shade); }
 .homelab-shortcut-rail::after { --shortcut-corner: 9.4px; inset: 1px; background: var(--panel-tint); }
