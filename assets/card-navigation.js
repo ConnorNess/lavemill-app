@@ -1,4 +1,4 @@
-const [page, returningHome] = await dioxus.recv();
+const [page, returningHome, recipeId] = await dioxus.recv();
 const root = document.documentElement;
 const activeClass = "home-card-transition";
 const returnClass = "home-card-return";
@@ -9,12 +9,20 @@ if (root.classList.contains(activeClass)) {
 }
 
 const pageKey = CSS.escape(page);
+const recipeKey = recipeId == null ? null : CSS.escape(recipeId);
 const findCard = () => document.querySelector(`[data-card-page="${pageKey}"]`)
     ?.closest(".dashboard-card");
 const findHeaderAnchor = () => document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
-const openingFromHeader = !returningHome && (page === "users" || page === "recipes");
+const openingFromHeader = !returningHome && recipeKey === null && (page === "users" || page === "recipes");
 const interiorPage = document.querySelector("main#main.interior-page");
-const source = returningHome ? interiorPage : openingFromHeader ? findHeaderAnchor() : findCard();
+let source;
+if (returningHome) {
+    source = interiorPage;
+} else if (recipeKey !== null) {
+    source = document.querySelector(`[data-recipe-card-id="${recipeKey}"]`);
+} else {
+    source = openingFromHeader ? findHeaderAnchor() : findCard();
+}
 if (!source || !document.startViewTransition ||
     matchMedia("(prefers-reduced-motion: reduce)").matches) {
     dioxus.send(true);
@@ -24,7 +32,12 @@ if (!source || !document.startViewTransition ||
 const bounds = source.getBoundingClientRect();
 const viewportWidth = root.clientWidth;
 const viewportHeight = root.clientHeight;
-const destinationPage = page === "recipes" ? "[data-recipes-index]" : `.${pageKey}-page`;
+let destinationPage = `.${pageKey}-page`;
+if (recipeKey !== null) {
+    destinationPage = `[data-recipe-detail-id="${recipeKey}"]`;
+} else if (page === "recipes") {
+    destinationPage = "[data-recipes-index]";
+}
 const destinationSelector = returningHome ? "main.home-dashboard" : `main#main${destinationPage}`;
 const properties = ["--card-reveal-x", "--card-reveal-y", "--card-reveal-radius"];
 const taskSelector = "[data-task-transition-id]";
@@ -48,7 +61,7 @@ const nameTaskRow = (row) => {
     row.style.viewTransitionName = `home-card-task-${row.dataset.taskTransitionId}`;
     namedRows.push(row);
 };
-const outgoingPage = openingFromHeader ? interiorPage : null;
+const outgoingPage = openingFromHeader || recipeKey !== null ? interiorPage : null;
 const outgoingClass = "home-card-source";
 
 root.classList.add(activeClass);
@@ -104,7 +117,8 @@ try {
         };
         const observer = new MutationObserver(findPage);
         observer.observe(document.body, {
-            childList: true, subtree: true, attributes: true, attributeFilter: ["data-recipes-index"],
+            childList: true, subtree: true, attributes: true,
+            attributeFilter: ["data-recipes-index", "data-recipe-detail-id"],
         });
         const timeout = setTimeout(() => {
             transition.skipTransition();

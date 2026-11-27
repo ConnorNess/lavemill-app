@@ -36,7 +36,7 @@ pub(crate) fn HomeCard(
                 onclick: move |_| {
                     let destination = destination.clone();
                     spawn(async move {
-                        if begin_transition(page, false).await {
+                        if begin_transition(page, false, None).await {
                             navigator.push(destination);
                         }
                     });
@@ -86,7 +86,7 @@ pub(crate) fn UsersLink() -> Element {
                 onclick: move |_| {
                     if opening_users {
                         spawn(async move {
-                            if begin_transition("users", false).await {
+                            if begin_transition("users", false, None).await {
                                 navigator.push(Route::Users {});
                             }
                         });
@@ -112,7 +112,7 @@ pub(crate) fn RecipesLink() -> Element {
                 onclick: move |_| {
                     if opening_recipes {
                         spawn(async move {
-                            if begin_transition("recipes", false).await {
+                            if begin_transition("recipes", false, None).await {
                                 navigator.push(Route::Recipes {});
                             }
                         });
@@ -121,6 +121,27 @@ pub(crate) fn RecipesLink() -> Element {
                 crate::Icon { kind: "recipes" }
                 span { "Recipes" }
             }
+        }
+    }
+}
+
+#[component]
+pub(crate) fn RecipeCardLink(id: i64, title: String) -> Element {
+    let navigator = use_navigator();
+    rsx! {
+        Link {
+            class: "recipe-card surface-panel",
+            to: Route::RecipeDetail { id },
+            "data-recipe-card-id": "{id}",
+            onclick_only: true,
+            onclick: move |_| {
+                spawn(async move {
+                    if begin_transition("recipes", false, Some(id)).await {
+                        navigator.push(Route::RecipeDetail { id });
+                    }
+                });
+            },
+            "{title}"
         }
     }
 }
@@ -147,7 +168,7 @@ pub(crate) fn HomeLink() -> Element {
             onclick: move |_| {
                 if let Some(page) = page {
                     spawn(async move {
-                        if begin_transition(page, true).await {
+                        if begin_transition(page, true, None).await {
                             navigator.push(Route::Home {});
                         }
                     });
@@ -159,9 +180,10 @@ pub(crate) fn HomeLink() -> Element {
     }
 }
 
-async fn begin_transition(page: &str, returning_home: bool) -> bool {
+async fn begin_transition(page: &str, returning_home: bool, recipe_id: Option<i64>) -> bool {
     let mut transition = document::eval(include_str!("../assets/card-navigation.js"));
-    if transition.send((page, returning_home)).is_err() {
+    let recipe_id = recipe_id.map(|id| id.to_string());
+    if transition.send((page, returning_home, recipe_id)).is_err() {
         return true;
     }
     transition.recv::<bool>().await.unwrap_or(true)

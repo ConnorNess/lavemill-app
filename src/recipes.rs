@@ -169,7 +169,7 @@ pub(super) fn Recipes() -> Element {
                     ul { class: "recipe-cards",
                         for card in cards {
                             li { key: "{card.id}",
-                                Link { class: "recipe-card surface-panel", to: Route::RecipeDetail { id: card.id }, "{card.title}" }
+                                crate::card_navigation::RecipeCardLink { id: card.id, title: card.title.clone() }
                             }
                         }
                     }
@@ -190,7 +190,7 @@ pub(super) fn RecipeDetail(id: i64) -> Element {
 fn RecipeDetailContent(id: i64) -> Element {
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipe-detail-id": "{id}",
             Link { class: "recipe-back-link", to: Route::Recipes {}, "All recipes" }
             match recipe.read().as_ref() {
                 Some(Ok(Some(recipe))) => rsx! {
