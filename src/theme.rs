@@ -7,6 +7,7 @@ pub(crate) enum Theme {
     Orange,
     Purple,
     Blue,
+    Red,
 }
 
 impl Theme {
@@ -16,12 +17,11 @@ impl Theme {
             Route::Shopping {} => Some(Self::Orange),
             Route::Calendar { .. } => Some(Self::Purple),
             Route::Users {} => Some(Self::Blue),
-            Route::Login { .. }
-            | Route::Todos {}
-            | Route::Recipes {}
+            Route::Recipes {}
             | Route::NewRecipe {}
             | Route::EditRecipe { .. }
-            | Route::RecipeDetail { .. } => Some(Self::Mint),
+            | Route::RecipeDetail { .. } => Some(Self::Red),
+            Route::Login { .. } | Route::Todos {} => Some(Self::Mint),
         }
     }
 
@@ -31,6 +31,7 @@ impl Theme {
             Self::Orange => "orange",
             Self::Purple => "purple",
             Self::Blue => "blue",
+            Self::Red => "red",
         }
     }
 }

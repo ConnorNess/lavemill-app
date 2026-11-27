@@ -45,18 +45,28 @@ pub(crate) fn HomeCard(
 }
 
 #[component]
-pub(crate) fn UsersLink() -> Element {
-    let navigator = use_navigator();
-    let opening_users = use_route::<Route>() != (Route::Users {});
-    let preview = use_theme_preview(&Route::Users {});
+pub(crate) fn ThemePreviewTile(to: Route, children: Element) -> Element {
+    let preview = use_theme_preview(&to);
     rsx! {
         span {
+            class: "theme-preview-tile",
             onpointerenter: move |event| {
                 if event.pointer_type() != "touch" {
                     preview();
                 }
             },
             onfocusin: move |_| preview(),
+            {children}
+        }
+    }
+}
+
+#[component]
+pub(crate) fn UsersLink() -> Element {
+    let navigator = use_navigator();
+    let opening_users = use_route::<Route>() != (Route::Users {});
+    rsx! {
+        ThemePreviewTile { to: Route::Users {},
             Link {
                 class: "account-icon",
                 to: Route::Users {},

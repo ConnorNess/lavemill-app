@@ -107,6 +107,25 @@
     --panel-edge: #729ab8;
 }
 
+:root:has(.site-header[data-theme="red"]) {
+    --theme-background-start: #fce5e5;
+    --theme-background-middle: #f8ced0;
+    --theme-background-end: #efa6ad;
+    --theme-ink: #62252c;
+    --theme-accent: #861e2e;
+    --theme-surface: #fff7f7;
+    --theme-active: #f8dadd;
+    --theme-accent-hover: #6b1523;
+    --theme-card-highlight: #d34f62;
+    --theme-checkmark: #fff2f3;
+    --theme-muted: #68454a;
+    --theme-field-border: #976068;
+    --theme-shade: #772b35;
+    --theme-shadow: #601b27;
+    --theme-backdrop: #411921;
+    --panel-edge: #b77a81;
+}
+
 /* Animate the colours used inside the gradient and shared accents. */
 @property --theme-background-start { syntax: "<color>"; inherits: true; initial-value: transparent; }
 @property --theme-background-middle { syntax: "<color>"; inherits: true; initial-value: transparent; }
@@ -158,6 +177,7 @@ svg { display: block; flex-shrink: 0; }
 .header-inner { width: 100%; min-height: var(--household-header-height); display: flex; align-items: center; gap: 12px; padding-inline: calc(var(--dashboard-side-padding) + max(0px, (100% - var(--dashboard-max-width)) / 2)) 15px; }
 .header-tile { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding-inline: 10px 14px; text-decoration: none; }
 .header-tile:focus-visible { border-radius: 0; }
+.theme-preview-tile { display: flex; }
 .brand, .home-dashboard .card-heading h2, .interior-page :is(h1, h2) { font-family: var(--display-font); font-weight: 700; }
 .brand { font-size: 1.875rem; letter-spacing: -0.07em; }
 .recipes-link { font-size: 0.875rem; font-weight: 650; }
