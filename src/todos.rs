@@ -285,7 +285,7 @@ pub(super) fn Todos() -> Element {
             match result.as_ref() {
                 Some(Ok(data)) => rsx! {
                     div { class: "todos-layout",
-                        div { class: "task-groups",
+                        div { class: "task-groups", role: "region", aria_label: "Task list", tabindex: "0",
                             for group in [Group::Overdue, Group::Today, Group::Upcoming, Group::Completed, Group::Failed] {
                                 TaskGroup {
                                     key: "{group.title()}",
@@ -633,7 +633,13 @@ fn TodoSelectField(
     use_effect(move || {
         if let Some(index) = active() {
             let _ = document::eval(&format!(
-                "document.getElementById('{scroll_menu}-{index}')?.scrollIntoView({{block:'nearest',inline:'nearest'}});"
+                r#"
+                const menu = document.getElementById('{scroll_menu}');
+                const panel = menu?.closest('.task-groups, .add-task-panel');
+                if (panel) menu.style.setProperty('--todo-menu-room', `${{Math.max(40, panel.clientHeight - 16)}}px`);
+                menu?.scrollIntoView({{block:'nearest',inline:'nearest'}});
+                menu?.children[{index}]?.scrollIntoView({{block:'nearest',inline:'nearest'}});
+                "#
             ));
         }
     });
@@ -716,7 +722,7 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
     let mut feedback = use_signal(String::new);
     let selected_assignee = assignee().map(|id| id.to_string()).unwrap_or_default();
     rsx! {
-        section { class: "add-task-panel surface-panel", aria_labelledby: "add-task-heading",
+        section { class: "add-task-panel surface-panel", aria_labelledby: "add-task-heading", tabindex: "0",
             h2 { id: "add-task-heading", "Add a task" }
             form { onsubmit: move |event| {
                 event.prevent_default();

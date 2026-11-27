@@ -565,11 +565,36 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .nav-link:hover { background: #eef6fa; }
 .nav-link.active { background: var(--accent-surface); color: var(--accent-ink); font-weight: 600; }
 .card-page-link { display: block; margin-top: auto; padding: 16px 22px; border-top: 1px solid var(--line); color: var(--accent-ink); font-size: 0.875rem; text-underline-offset: 4px; }
-.todos-page { max-width: 1180px; }
+:root:has(.todos-page), body:has(.todos-page) { overflow: clip; }
+body:has(.todos-page) { min-height: 0; }
+:has(> .site-header):has(> .todos-page) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+}
+.dashboard.todos-page {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    max-width: 1180px;
+    height: calc(100dvh - var(--household-header-height));
+    min-height: 0;
+    padding-block: clamp(10px, 3dvh, 32px);
+    overflow: clip;
+}
+:has(> .site-header) > .dashboard.todos-page { flex: 1; height: auto; }
 .todos-heading { margin-bottom: 26px; }
 .mock-note { margin: 8px 0 0; font-size: 0.875rem; color: var(--muted); }
-.todos-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; }
-.task-groups { min-width: 0; display: grid; gap: 20px; }
+.todos-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: minmax(0, 1fr); gap: 28px; }
+.todos-layout > :is(.task-groups, .add-task-panel) {
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scroll-padding-block: 8px;
+}
+.todos-layout > :is(.task-groups, .add-task-panel):focus-visible { outline: 2px solid var(--theme-accent); outline-offset: -2px; }
+.todos-layout > .add-task-panel { align-self: start; max-height: 100%; }
+.task-groups { display: grid; align-content: start; gap: 20px; }
 .task-group-heading { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .task-group-heading .count-badge { margin-left: auto; }
 .task-group-heading .overdue { color: #8d4530; }
@@ -608,7 +633,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
     z-index: 4;
     inset-inline: 0;
     inset-block-start: calc(100% + 4px);
-    max-block-size: min(14rem, 45dvh);
+    max-block-size: min(14rem, 45dvh, var(--todo-menu-room, 100dvh));
     overflow-y: auto;
     margin: 0;
     padding: 4px 0;
@@ -869,8 +894,9 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
     .card-heading { padding: 22px; gap: 12px; }
     .count-badge { margin-left: auto; }
     .card-body { padding-inline: 22px; }
-    .todos-layout { grid-template-columns: minmax(0, 1fr); }
-    .add-task-panel { grid-row: 1; }
+    .todos-heading { margin-bottom: 12px; }
+    .todos-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; }
+    .todos-layout > .add-task-panel { grid-row: 1; align-self: stretch; }
 }
 
 @media (max-width: 420px) {
