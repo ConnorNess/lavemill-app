@@ -150,7 +150,7 @@ fn HouseholdLayout() -> Element {
 #[component]
 fn Home() -> Element {
     rsx! {
-        main { id: "main", class: "dashboard", tabindex: "-1",
+        main { id: "main", class: "dashboard home-dashboard", tabindex: "-1",
             document::Title { "Lavemill · Home" }
             h1 { class: "sr-only", "Home" }
             homelab::Shortcuts {}
