@@ -162,11 +162,9 @@ pub fn CalendarCard() -> Element {
     let agenda = use_server_future(shared_agenda)?;
     let agenda = agenda.read();
     rsx! {
-        section { class: "dashboard-card", aria_labelledby: "calendar-title",
-            crate::card_navigation::HomeCardLink {
-                to: Route::Calendar { view: None, date: None, notice: None },
-                label: "Open shared calendar", page: "calendar",
-            }
+        crate::card_navigation::HomeCard {
+            to: Route::Calendar { view: None, date: None, notice: None },
+            label: "Open shared calendar", page: "calendar", heading: "calendar-title",
             CardHeading {
                 icon: "calendar",
                 title: "Shared Calendar",

@@ -186,8 +186,8 @@ pub(super) fn TasksCard() -> Element {
         });
     });
     rsx! {
-        section { class: "dashboard-card dashboard-list-card", tabindex: "0", aria_labelledby: "tasks-title",
-            crate::card_navigation::HomeCardLink { to: Route::Todos {}, label: "Open to-dos", page: "todos" }
+        crate::card_navigation::HomeCard {
+            to: Route::Todos {}, label: "Open to-dos", page: "todos", heading: "tasks-title", scrollable: true,
             CardHeading { icon: "tasks", title: "To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
                 if refresh_failed() {

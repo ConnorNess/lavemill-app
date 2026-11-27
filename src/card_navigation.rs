@@ -1,25 +1,45 @@
-use crate::Route;
+use crate::{theme::use_theme_preview, Route};
 use dioxus::prelude::*;
 
 #[component]
-pub(crate) fn HomeCardLink(to: Route, label: &'static str, page: &'static str) -> Element {
+pub(crate) fn HomeCard(
+    to: Route,
+    label: &'static str,
+    page: &'static str,
+    heading: &'static str,
+    #[props(default)] scrollable: bool,
+    children: Element,
+) -> Element {
     let navigator = use_navigator();
     let destination = to.clone();
+    let preview = use_theme_preview(&to);
     rsx! {
-        Link {
-            class: "card-hit-area",
-            to,
-            aria_label: label,
-            "data-card-page": page,
-            onclick_only: true,
-            onclick: move |_| {
-                let destination = destination.clone();
-                spawn(async move {
-                    if begin_transition(page, false).await {
-                        navigator.push(destination);
-                    }
-                });
+        section {
+            class: if scrollable { "dashboard-card dashboard-list-card" } else { "dashboard-card" },
+            tabindex: scrollable.then_some("0"),
+            aria_labelledby: heading,
+            onpointerenter: move |event| {
+                if event.pointer_type() != "touch" {
+                    preview();
+                }
             },
+            onfocusin: move |_| preview(),
+            Link {
+                class: "card-hit-area",
+                to,
+                aria_label: label,
+                "data-card-page": page,
+                onclick_only: true,
+                onclick: move |_| {
+                    let destination = destination.clone();
+                    spawn(async move {
+                        if begin_transition(page, false).await {
+                            navigator.push(destination);
+                        }
+                    });
+                },
+            }
+            {children}
         }
     }
 }
@@ -28,24 +48,33 @@ pub(crate) fn HomeCardLink(to: Route, label: &'static str, page: &'static str) -
 pub(crate) fn UsersLink() -> Element {
     let navigator = use_navigator();
     let opening_users = use_route::<Route>() != (Route::Users {});
+    let preview = use_theme_preview(&Route::Users {});
     rsx! {
-        Link {
-            class: "account-icon",
-            to: Route::Users {},
-            aria_label: "Users",
-            title: "Users",
-            "data-home-return-anchor": "users",
-            onclick_only: opening_users,
-            onclick: move |_| {
-                if opening_users {
-                    spawn(async move {
-                        if begin_transition("users", false).await {
-                            navigator.push(Route::Users {});
-                        }
-                    });
+        span {
+            onpointerenter: move |event| {
+                if event.pointer_type() != "touch" {
+                    preview();
                 }
             },
-            crate::Icon { kind: "users" }
+            onfocusin: move |_| preview(),
+            Link {
+                class: "account-icon",
+                to: Route::Users {},
+                aria_label: "Users",
+                title: "Users",
+                "data-home-return-anchor": "users",
+                onclick_only: opening_users,
+                onclick: move |_| {
+                    if opening_users {
+                        spawn(async move {
+                            if begin_transition("users", false).await {
+                                navigator.push(Route::Users {});
+                            }
+                        });
+                    }
+                },
+                crate::Icon { kind: "users" }
+            }
         }
     }
 }

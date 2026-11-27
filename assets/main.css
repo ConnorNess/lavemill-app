@@ -16,13 +16,14 @@
     --theme-active: #d4eee3;
     --theme-accent-hover: #0d4633;
     --theme-card-highlight: #38cc91;
+    --agenda-marker: #acd4e9;
     --theme-checkmark: #eafaf3;
     --theme-muted: #39564d;
     --theme-field-border: #719688;
     --theme-shade: #184e3e;
     --theme-shadow: #154939;
     --theme-backdrop: #122f25;
-    --theme-control-edge: color-mix(in srgb, var(--theme-accent) 76%, transparent);
+    --theme-control-edge: color-mix(in srgb, var(--theme-accent) 85%, transparent);
     --display-font: "Zen Old Mincho", Georgia, serif;
     --panel-corner: 7px;
     --panel-shadow: 0 7px 20px color-mix(in srgb, var(--theme-shadow) 9%, transparent);
@@ -38,6 +39,72 @@
     background: var(--background);
     font-synthesis: none;
     line-height: 1.5;
+}
+
+:root:has(.site-header[data-theme]:not([data-theme="mint"])) {
+    --surface: var(--theme-surface);
+    --muted: var(--theme-muted);
+    --line: var(--panel-edge);
+    --accent-surface: var(--theme-active);
+    --accent-ink: var(--theme-accent);
+    --agenda-marker: color-mix(in srgb, var(--theme-accent) 45%, var(--theme-active));
+}
+
+:root:has(.site-header[data-theme="orange"]) {
+    --theme-background-start: #ffead7;
+    --theme-background-middle: #fbd9ba;
+    --theme-background-end: #f4bd91;
+    --theme-ink: #653317;
+    --theme-accent: #874117;
+    --theme-surface: #fff8f0;
+    --theme-active: #fae1cc;
+    --theme-accent-hover: #6c3010;
+    --theme-card-highlight: #d77538;
+    --theme-checkmark: #fff4e9;
+    --theme-muted: #634b3d;
+    --theme-field-border: #93694f;
+    --theme-shade: #743d1e;
+    --theme-shadow: #622f15;
+    --theme-backdrop: #3f2113;
+    --panel-edge: #bc8b6d;
+}
+
+:root:has(.site-header[data-theme="purple"]) {
+    --theme-background-start: #f0e7fc;
+    --theme-background-middle: #e6d7f7;
+    --theme-background-end: #d0b7ec;
+    --theme-ink: #4b3267;
+    --theme-accent: #61408c;
+    --theme-surface: #fbf7ff;
+    --theme-active: #e9dcf8;
+    --theme-accent-hover: #4c2e75;
+    --theme-card-highlight: #9867d1;
+    --theme-checkmark: #faf2ff;
+    --theme-muted: #594966;
+    --theme-field-border: #846c9b;
+    --theme-shade: #50356d;
+    --theme-shadow: #422a62;
+    --theme-backdrop: #2b1b3d;
+    --panel-edge: #9d85b7;
+}
+
+:root:has(.site-header[data-theme="blue"]) {
+    --theme-background-start: #e2f2fc;
+    --theme-background-middle: #cde6f8;
+    --theme-background-end: #acd2ef;
+    --theme-ink: #234969;
+    --theme-accent: #245d88;
+    --theme-surface: #f3faff;
+    --theme-active: #dbeefa;
+    --theme-accent-hover: #17476e;
+    --theme-card-highlight: #4497cf;
+    --theme-checkmark: #ecf8ff;
+    --theme-muted: #3c5366;
+    --theme-field-border: #5d7e98;
+    --theme-shade: #2b5475;
+    --theme-shadow: #20496b;
+    --theme-backdrop: #132e43;
+    --panel-edge: #729ab8;
 }
 
 * { box-sizing: border-box; }
@@ -407,7 +474,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .agenda-date span { color: var(--muted); font-size: 0.75rem; font-weight: 400; }
 .agenda-row { display: flex; align-items: stretch; gap: 12px; padding-left: 1px; }
 .agenda-row + .agenda-row { margin-top: 17px; }
-.agenda-marker { width: 3px; flex-shrink: 0; border-radius: 4px; background: #acd4e9; }
+.agenda-marker { width: 3px; flex-shrink: 0; border-radius: 4px; background: var(--agenda-marker); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 .nav-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 14px; border-radius: 10px; font-size: 0.875rem; text-decoration: none; }
