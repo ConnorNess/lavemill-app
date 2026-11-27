@@ -37,6 +37,17 @@ pub(crate) enum Repeat {
     Monthly,
 }
 
+impl Repeat {
+    fn value(self) -> &'static str {
+        match self {
+            Self::Once => "once",
+            Self::Daily => "daily",
+            Self::Weekly => "weekly",
+            Self::Monthly => "monthly",
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub(crate) enum Change {
     Create {
@@ -460,9 +471,9 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                         onclick: move |_| submit.call(Change::Reopen { id }), "Undo" }
                 }
             } else {
-                label { class: "task-assignee-field",
-                    span { class: "sr-only", "Assign {task.title} to" }
-                    MemberSelect { value: assignee, members, disabled: pending(),
+                div { class: "task-assignee-field",
+                    MemberSelect { id: format!("task-assignee-{id}"), label: format!("Assign {} to", task.title),
+                        value: assignee, members, disabled: pending(),
                         on_change: move |assignee| submit.call(Change::Assign { id, assignee }) }
                 }
             }
@@ -562,17 +573,23 @@ fn TaskInlineEditor(
 
 #[component]
 fn MemberSelect(
+    id: String,
+    label: String,
     value: String,
     members: Vec<Member>,
     disabled: bool,
     on_change: EventHandler<Option<i64>>,
 ) -> Element {
+    let options = std::iter::once((String::new(), "Unassigned".to_owned()))
+        .chain(
+            members
+                .into_iter()
+                .map(|member| (member.id.to_string(), member.name)),
+        )
+        .collect();
     rsx! {
-        TodoSelectField {
-            select { value: "{value}", disabled, onchange: move |event| on_change.call(event.value().parse().ok()),
-                option { value: "", "Unassigned" }
-                for member in members { option { key: "{member.id}", value: "{member.id}", "{member.name}" } }
-            }
+        TodoSelectField { id, label, value, options, disabled,
+            on_change: move |value: String| on_change.call(value.parse().ok()),
         }
     }
 }
@@ -588,11 +605,100 @@ fn TodoTextField(icon: &'static str, children: Element) -> Element {
 }
 
 #[component]
-fn TodoSelectField(children: Element) -> Element {
+fn TodoSelectField(
+    id: String,
+    label: String,
+    value: String,
+    options: Vec<(String, String)>,
+    disabled: bool,
+    on_change: EventHandler<String>,
+) -> Element {
+    let mut active = use_signal(|| None::<usize>);
+    let mut trigger = use_signal(|| None::<std::rc::Rc<MountedData>>);
+    let selected = options
+        .iter()
+        .position(|option| option.0 == value)
+        .unwrap_or(0);
+    let selected_label = &options[selected].1;
+    let menu = format!("{id}-options");
+    let active_option = active().map(|index| format!("{menu}-{index}"));
+    let expanded = active_option.is_some();
+    let choose = Callback::new(move |next: String| {
+        active.set(None);
+        if next != value {
+            on_change.call(next);
+        }
+    });
+    let scroll_menu = menu.clone();
+    use_effect(move || {
+        if let Some(index) = active() {
+            let _ = document::eval(&format!(
+                "document.getElementById('{scroll_menu}-{index}')?.scrollIntoView({{block:'nearest',inline:'nearest'}});"
+            ));
+        }
+    });
+    let keyboard_options = options.clone();
     rsx! {
-        span { class: "todo-field todo-select-field",
-            {children}
-            span { class: "todo-field-icon", crate::Icon { kind: "chevron-down" } }
+        div { class: "todo-select-field",
+            button { id: "{id}", class: "todo-field todo-select-trigger", r#type: "button",
+                role: "combobox", aria_label: "{label}", aria_expanded: "{expanded}", aria_controls: "{menu}",
+                aria_activedescendant: active_option, disabled,
+                onmounted: move |event: MountedEvent| trigger.set(Some(event.data())),
+                onblur: move |_| active.set(None),
+                onclick: move |_| {
+                    if active().is_some() {
+                        active.set(None);
+                    } else {
+                        active.set(Some(selected));
+                        if let Some(element) = trigger() {
+                            spawn(async move { let _ = element.set_focus(true).await; });
+                        }
+                    }
+                },
+                onkeydown: move |event| {
+                    if event.is_composing() { return; }
+                    let current = active();
+                    let last = keyboard_options.len() - 1;
+                    let next = match event.key() {
+                        Key::ArrowDown => current.map(|index| (index + 1).min(last)).unwrap_or(selected),
+                        Key::ArrowUp => current.map(|index| index.saturating_sub(1)).unwrap_or(selected),
+                        Key::Home => 0,
+                        Key::End => last,
+                        Key::Escape if current.is_some() => {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            active.set(None);
+                            return;
+                        }
+                        Key::Tab => {
+                            active.set(None);
+                            return;
+                        }
+                        key if current.is_some() && (key == Key::Enter || key == Key::Character(" ".into())) => {
+                            event.prevent_default();
+                            if let Some(index) = current {
+                                choose.call(keyboard_options[index].0.clone());
+                            }
+                            return;
+                        }
+                        _ => return,
+                    };
+                    event.prevent_default();
+                    active.set(Some(next));
+                },
+                span { class: "todo-select-label", "{selected_label}" }
+                span { class: "todo-field-icon", crate::Icon { kind: "chevron-down" } }
+            }
+            ul { id: "{menu}", class: "todo-select-options", role: "listbox", aria_label: "{label}", hidden: !expanded,
+                onmousedown: move |event| event.prevent_default(),
+                for (index, (option_value, option_label)) in options.into_iter().enumerate() {
+                    li { key: "{option_value}", id: "{menu}-{index}", role: "option",
+                        aria_selected: (index == selected).to_string(),
+                        class: if active() == Some(index) { "is-active" } else { "" },
+                        onclick: move |_| choose.call(option_value.clone()), "{option_label}"
+                    }
+                }
+            }
         }
     }
 }
@@ -648,23 +754,19 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
                     input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", disabled: pending(), oninput: move |event| due.set(event.value()) }
                 }
                 label { r#for: "new-task-repeat", "Repeat" }
-                TodoSelectField {
-                    select { id: "new-task-repeat", disabled: pending(), onchange: move |event| repeat.set(match event.value().as_str() {
+                TodoSelectField { id: "new-task-repeat", label: "Repeat", value: repeat().value(), disabled: pending(),
+                    options: [("once", "Once"), ("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly")]
+                        .map(|(value, label)| (value.to_owned(), label.to_owned())).to_vec(),
+                    on_change: move |value: String| repeat.set(match value.as_str() {
                         "daily" => Repeat::Daily,
                         "weekly" => Repeat::Weekly,
                         "monthly" => Repeat::Monthly,
                         _ => Repeat::Once,
                     }),
-                        option { value: "once", "Once" }
-                        option { value: "daily", "Daily" }
-                        option { value: "weekly", "Weekly" }
-                        option { value: "monthly", "Monthly" }
-                    }
                 }
-                label {
-                    "Assigned to"
-                    MemberSelect { value: selected_assignee, members, disabled: pending(), on_change: move |value| assignee.set(value) }
-                }
+                label { r#for: "new-task-assignee", "Assigned to" }
+                MemberSelect { id: "new-task-assignee", label: "Assigned to", value: selected_assignee, members,
+                    disabled: pending(), on_change: move |value| assignee.set(value) }
                 if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
                 button { class: "primary-button", r#type: "submit", disabled: pending(), "Add task" }
                 p { class: "form-feedback", role: "status", "{feedback}" }

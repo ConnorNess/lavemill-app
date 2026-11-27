@@ -581,7 +581,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 }
 .todo-text-field { grid-template-columns: 44px minmax(0, 1fr); }
 .todo-field-icon { display: grid; place-items: center; color: var(--theme-checkmark); }
-.todos-page .todo-field :is(input, textarea, select) {
+.todos-page .todo-field :is(input, textarea), .todos-page .todo-select-trigger {
     width: 100%;
     border: 0;
     border-radius: 0;
@@ -591,52 +591,45 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
     font-weight: 400;
 }
 .todo-field textarea { min-height: 4rem; padding: 10px 12px; resize: vertical; }
-.todos-page .todo-field :is(input, textarea, select):focus-visible { outline-offset: -6px; }
+.todos-page .todo-field :is(input, textarea):focus-visible,
+.todos-page .todo-select-trigger:focus-visible { outline-offset: -6px; }
 .todo-select-field { position: relative; }
-.todos-page .todo-select-field select { padding-inline-end: 48px; }
-.todo-select-field .todo-field-icon {
-    position: absolute;
-    inset-block: 0;
-    inset-inline-end: 0;
-    width: 40px;
-    background: var(--theme-accent);
-    pointer-events: none;
+.todos-page .todo-select-trigger {
+    grid-template-columns: minmax(0, 1fr) 40px;
+    padding: 0;
+    text-align: start;
 }
-.todo-select-field .todo-field-icon svg { width: 18px; height: 18px; }
-.todo-select-field:has(select:disabled) .todo-field-icon { opacity: 0.6; }
-.todo-select-field option { color: var(--theme-ink); background: var(--theme-active); }
-@supports (appearance: base-select) and selector(select::picker(select)) {
-    @media (forced-colors: none) {
-        .todos-page .todo-select-field select,
-        .todo-select-field select::picker(select) { appearance: base-select; }
-        .todo-select-field select::picker-icon { display: none; }
-        .todo-select-field select::picker(select) {
-            margin-block-start: 4px;
-            padding: 4px 0;
-            border: 0;
-            border-radius: 0;
-            color: var(--theme-ink);
-            background: var(--theme-active);
-            clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
-        }
-        .todo-select-field option { min-height: 40px; padding: 8px 12px; }
-        .todo-select-field option:checked { background: var(--theme-background-middle); font-weight: 600; }
-        .todo-select-field option:is(:hover, :focus-visible) {
-            color: var(--theme-checkmark);
-            background: var(--theme-accent);
-        }
-    }
-    @media (forced-colors: none) and (prefers-reduced-motion: no-preference) {
-        .todo-select-field select:open::picker(select) { animation: todo-picker-open 160ms ease-out; }
-    }
+.todo-select-trigger:disabled { opacity: 0.6; cursor: default; }
+.todo-select-label { align-self: center; min-width: 0; padding: 10px 12px; overflow-wrap: anywhere; }
+.todo-select-trigger .todo-field-icon { background: var(--theme-accent); }
+.todo-select-trigger .todo-field-icon svg { width: 18px; height: 18px; }
+.todo-select-options {
+    position: absolute;
+    z-index: 4;
+    inset-inline: 0;
+    inset-block-start: calc(100% + 4px);
+    max-block-size: min(14rem, 45dvh);
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px 0;
+    list-style: none;
+    color: var(--theme-ink);
+    background: var(--theme-active);
+    clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
+}
+.todo-select-options li { padding: 8px 12px; min-height: 40px; overflow-wrap: anywhere; cursor: pointer; }
+.todo-select-options [aria-selected="true"] { background: var(--theme-background-middle); font-weight: 600; }
+.todo-select-options li:is(.is-active, :hover) { color: var(--theme-checkmark); background: var(--theme-accent); }
+@media (prefers-reduced-motion: no-preference) {
+    .todo-select-options:not([hidden]) { animation: todo-picker-open 160ms ease-out; }
 }
 @keyframes todo-picker-open {
     from { opacity: 0; transform: translateY(-7px); }
     to { opacity: 1; transform: translateY(0); }
 }
 @media (forced-colors: active) {
-    .todos-page .todo-select-field select { appearance: auto; padding-inline-end: 12px; }
-    .todo-select-field .todo-field-icon { display: none; }
+    .todo-select-options { border: 1px solid CanvasText; }
+    .todo-select-options .is-active { outline: 2px solid Highlight; outline-offset: -2px; }
 }
 .interior-page :is(.task-check-target, .shopping-check) input { accent-color: var(--theme-accent); }
 .empty-tasks { margin: 0; padding: 20px 22px; font-size: 0.875rem; color: var(--muted); }
@@ -673,7 +666,7 @@ input, select, button { font: inherit; }
 input:not([type="checkbox"]), select { min-width: 0; max-width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #bbc8ce; border-radius: 8px; color: var(--ink); background: var(--surface); }
 select { appearance: none; padding-right: 34px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%2328556b' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }
 .task-assignee-field { flex-shrink: 0; width: 168px; }
-.task-assignee-field select { width: 100%; font-size: 0.875rem; }
+.task-assignee-field .todo-select-trigger { font-size: 0.875rem; }
 .completed-assignee { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
 button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: pointer; }
 .undo-button { color: var(--accent-ink); background: transparent; border: 1px solid #c8dce7; font-size: 0.875rem; }
