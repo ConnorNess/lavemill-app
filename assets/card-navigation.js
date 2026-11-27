@@ -26,6 +26,20 @@ const properties = ["--card-reveal-x", "--card-reveal-y", "--card-reveal-radius"
 const taskSelector = "[data-task-transition-id]";
 const visibleTasks = new Set();
 const namedRows = [];
+const visibleTaskRows = (container, clippingCard) => {
+    const cardTop = clippingCard
+        ? clippingCard.getBoundingClientRect().top + clippingCard.clientTop
+        : 0;
+    const top = Math.max(0, cardTop);
+    const bottom = clippingCard
+        ? Math.min(root.clientHeight, cardTop + clippingCard.clientHeight)
+        : root.clientHeight;
+    // Clipped rows would pop into view when promoted to their own snapshot.
+    return Array.from(container.querySelectorAll(taskSelector)).filter((row) => {
+        const { height, top: rowTop, bottom: rowBottom } = row.getBoundingClientRect();
+        return height > 0 && rowTop >= top && rowBottom <= bottom;
+    });
+};
 const nameTaskRow = (row) => {
     row.style.viewTransitionName = `home-card-task-${row.dataset.taskTransitionId}`;
     namedRows.push(row);
@@ -34,15 +48,8 @@ const nameTaskRow = (row) => {
 root.classList.add(activeClass);
 root.classList.toggle(returnClass, returningHome);
 try {
-    if (page === "todos" && !returningHome) {
-        const top = Math.max(0, bounds.top + source.clientTop);
-        const bottom = Math.min(viewportHeight, bounds.top + source.clientTop + source.clientHeight);
-        // Rows clipped by the preview's scrollport would pop out of the card.
-        const visibleRows = Array.from(source.querySelectorAll(taskSelector)).filter((row) => {
-            const bounds = row.getBoundingClientRect();
-            return bounds.height > 0 && bounds.top >= top && bounds.bottom <= bottom;
-        });
-        for (const row of visibleRows) {
+    if (page === "todos") {
+        for (const row of visibleTaskRows(source, returningHome ? null : source)) {
             visibleTasks.add(row.dataset.taskTransitionId);
             nameTaskRow(row);
         }
@@ -59,11 +66,12 @@ try {
             if (!destination) return;
 
             let anchorBounds = bounds;
+            let landingCard;
             if (returningHome) {
-                const card = findCard();
-                const anchor = card ?? document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
+                landingCard = findCard();
+                const anchor = landingCard ?? document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
                 if (!anchor) return;
-                card?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+                landingCard?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
                 anchorBounds = anchor.getBoundingClientRect();
             }
             const { left, top } = returningHome ? bounds : destination.getBoundingClientRect();
@@ -77,7 +85,10 @@ try {
             root.style.setProperty("--card-reveal-y", `${centerY - top}px`);
             root.style.setProperty("--card-reveal-radius", `${radius}px`);
             if (visibleTasks.size) {
-                for (const row of destination.querySelectorAll(taskSelector)) {
+                const destinationRows = landingCard
+                    ? visibleTaskRows(landingCard, landingCard)
+                    : destination.querySelectorAll(taskSelector);
+                for (const row of destinationRows) {
                     if (visibleTasks.has(row.dataset.taskTransitionId)) nameTaskRow(row);
                 }
             }
