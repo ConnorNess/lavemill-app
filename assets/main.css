@@ -761,6 +761,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 @media (max-width: 420px) {
     :root { --household-header-height: 80px; }
     .header-inner, .dashboard { --dashboard-side-padding: 18px; }
+    .homelab-shortcut-rail { gap: 5px; }
     .card-heading { padding: 18px 16px; }
     .card-heading { gap: 9px; }
     .card-heading-copy { min-width: 125px; }

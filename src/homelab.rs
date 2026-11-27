@@ -14,6 +14,7 @@ enum Service {
     Komga,
     Foundry,
     BookStack,
+    GitHub,
 }
 
 impl Service {
@@ -24,6 +25,7 @@ impl Service {
             Self::Komga => "Komga",
             Self::Foundry => "Foundry",
             Self::BookStack => "BookStack",
+            Self::GitHub => "GitHub",
         }
     }
 }
@@ -31,8 +33,14 @@ impl Service {
 #[get("/api/homelab/shortcuts")]
 async fn shortcuts() -> Result<Vec<Shortcut>, ServerFnError> {
     crate::auth::require_member()?;
+    Ok(configured_shortcuts(|variable| {
+        std::env::var(variable).ok()
+    }))
+}
 
-    Ok([
+#[cfg(feature = "server")]
+fn configured_shortcuts(read_url: impl Fn(&str) -> Option<String>) -> Vec<Shortcut> {
+    [
         (Service::Seerr, "LAVEMILL_SEERR_URL"),
         (Service::Plex, "LAVEMILL_PLEX_URL"),
         (Service::Komga, "LAVEMILL_KOMGA_URL"),
@@ -41,11 +49,15 @@ async fn shortcuts() -> Result<Vec<Shortcut>, ServerFnError> {
     ]
     .into_iter()
     .filter_map(|(service, variable)| {
-        let value = std::env::var(variable).ok()?;
+        let value = read_url(variable)?;
         let url = shortcut_url(&value)?;
         Some(Shortcut { service, url })
     })
-    .collect())
+    .chain(std::iter::once(Shortcut {
+        service: Service::GitHub,
+        url: "https://github.com/ConnorNess/lavemill-app".into(),
+    }))
+    .collect()
 }
 
 #[cfg(feature = "server")]
@@ -65,10 +77,6 @@ pub fn Shortcuts() -> Element {
     let Some(Ok(links)) = shortcuts.as_ref() else {
         return rsx! {};
     };
-    if links.is_empty() {
-        return rsx! {};
-    }
-
     rsx! {
         nav { class: "homelab-shortcuts", aria_label: "Homelab",
             div { class: "homelab-shortcut-rail",
@@ -91,7 +99,22 @@ pub fn Shortcuts() -> Element {
 
 #[cfg(all(test, feature = "server"))]
 mod tests {
-    use super::shortcut_url;
+    use super::{configured_shortcuts, shortcut_url};
+
+    #[test]
+    fn github_is_the_final_shortcut_even_without_configured_services() {
+        let links = configured_shortcuts(|_| Some("https://service.example.com".into()));
+        let names: Vec<_> = links.iter().map(|link| link.service.name()).collect();
+        assert_eq!(
+            names,
+            ["Seerr", "Plex", "Komga", "Foundry", "BookStack", "GitHub"]
+        );
+
+        let links = configured_shortcuts(|_| None);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].service.name(), "GitHub");
+        assert_eq!(links[0].url, "https://github.com/ConnorNess/lavemill-app");
+    }
 
     #[test]
     fn shortcuts_accept_web_urls_and_skip_unusable_destinations() {
