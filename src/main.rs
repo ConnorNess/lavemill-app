@@ -152,12 +152,16 @@ fn Home() -> Element {
         main { id: "main", class: "dashboard home-dashboard", tabindex: "-1",
             document::Title { "Lavemill · Home" }
             h1 { class: "sr-only", "Home" }
-            homelab::Shortcuts {}
-            activity::ActivitySection {}
-            div { class: "dashboard-grid",
-                TasksCard {}
-                ShoppingCard {}
-                CalendarCard {}
+            div { class: "home-dashboard-layout",
+                div { class: "home-dashboard-content",
+                    activity::ActivitySection {}
+                    div { class: "dashboard-grid",
+                        TasksCard {}
+                        ShoppingCard {}
+                        CalendarCard {}
+                    }
+                }
+                homelab::Shortcuts {}
             }
         }
     }
