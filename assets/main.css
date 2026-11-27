@@ -868,7 +868,6 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .shopping-item-row > .form-error { overflow-wrap: anywhere; }
 .shopping-item-row + .shopping-item-row { border-top: 1px solid var(--line); }
 .shopping-item-title { display: flex; align-items: center; gap: 6px; }
-.shopping-item-title .row-title { min-width: 0; }
 .shopping-item-row .row-note { margin-top: 0; }
 .shopping-check { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; cursor: pointer; }
 .shopping-check input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent-ink); cursor: pointer; }

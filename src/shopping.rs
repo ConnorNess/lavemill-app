@@ -260,15 +260,15 @@ fn ShoppingItemRow(item: ShoppingItem, mut editing: Signal<Option<i64>>) -> Elem
                 ShoppingEditForm { item: item.clone(), editing, on_remove: remove.clone() }
             } else {
                 ShoppingCheckbox { item: item.clone(), error }
-                div { class: "row-copy",
-                    div { class: "shopping-item-title",
-                        span { class: "row-title", "{item.name}" }
-                        button { class: "shopping-item-action", r#type: "button", disabled: active_editor.is_some() || actions.disabled(),
-                            aria_label: "Edit {item.name}", onclick: move |_| editing.set(Some(id)),
-                            crate::Icon { kind: "pencil" }
-                        }
+                div { class: "shopping-item-title",
+                    button { class: "shopping-item-action", r#type: "button", disabled: active_editor.is_some() || actions.disabled(),
+                        aria_label: "Edit {item.name}", onclick: move |_| editing.set(Some(id)),
+                        crate::Icon { kind: "pencil" }
                     }
-                    if let Some(quantity) = item.quantity { span { class: "row-note", "{quantity}" } }
+                    div { class: "row-copy",
+                        span { class: "row-title", "{item.name}" }
+                        if let Some(quantity) = item.quantity { span { class: "row-note", "{quantity}" } }
+                    }
                 }
                 button { class: "shopping-item-action", r#type: "button", aria_label: "Remove {item.name}",
                     disabled: actions.disabled(), onclick: remove,
