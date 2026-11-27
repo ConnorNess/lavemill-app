@@ -62,6 +62,7 @@ enum Route {
 }
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
+const FONT_ASSETS: Asset = asset!("/assets/fonts", AssetOptions::folder());
 
 fn main() {
     #[cfg(feature = "server")]
@@ -99,6 +100,7 @@ fn main() {
 #[component]
 fn App() -> Element {
     rsx! {
+        document::Link { rel: "stylesheet", href: "{FONT_ASSETS}/fonts.css" }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         Router::<Route> {}
     }

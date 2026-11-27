@@ -12,7 +12,7 @@
     --panel-top-right: linear-gradient(225deg, transparent 7px, var(--panel-tint) 7px),
         linear-gradient(225deg, transparent 7px, var(--panel-shade) 7px);
     --household-header-height: 97px;
-    font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
     color: var(--ink);
     background: var(--background);
     font-synthesis: none;
@@ -32,7 +32,8 @@ svg { display: block; flex-shrink: 0; }
 .header-tile { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding-inline: 10px 14px; background: var(--panel-top-right); text-decoration: none; }
 .header-tile:hover { background: linear-gradient(225deg, transparent 7px, rgb(24 78 62 / 24%) 7px), var(--panel-top-right); }
 .header-tile:focus-visible { border-radius: 0; }
-.brand { font-family: Georgia, "Times New Roman", serif; font-size: 1.875rem; font-weight: 700; letter-spacing: -0.07em; }
+.brand, .home-dashboard .card-heading h2 { font-family: "Zen Old Mincho", Georgia, serif; font-weight: 700; }
+.brand { font-size: 1.875rem; letter-spacing: -0.07em; }
 .recipes-link { font-size: 0.875rem; font-weight: 650; }
 .recipes-link svg { width: 20px; height: 20px; }
 .account-menu {
@@ -444,6 +445,10 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
     .card-heading-copy { min-width: 120px; }
     .count-badge { margin-left: 50px; }
     .dashboard-grid { gap: 16px; }
+}
+
+@media (900px <= width <= 1150px) {
+    .home-dashboard .card-heading { padding-inline: 18px; gap: 10px; }
 }
 
 @media (max-width: 899px) {
