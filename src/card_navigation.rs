@@ -1,4 +1,7 @@
-use crate::{theme::use_theme_preview, Route};
+use crate::{
+    theme::{use_header_theme_preview, use_theme_preview, PreviewSource},
+    Route,
+};
 use dioxus::prelude::*;
 
 #[component]
@@ -46,16 +49,22 @@ pub(crate) fn HomeCard(
 
 #[component]
 pub(crate) fn ThemePreviewTile(to: Route, children: Element) -> Element {
-    let preview = use_theme_preview(&to);
+    let preview = use_header_theme_preview(&to);
     rsx! {
         span {
             class: "theme-preview-tile",
             onpointerenter: move |event| {
                 if event.pointer_type() != "touch" {
-                    preview();
+                    preview.call((PreviewSource::Pointer, true));
                 }
             },
-            onfocusin: move |_| preview(),
+            onpointerleave: move |event| {
+                if event.pointer_type() != "touch" {
+                    preview.call((PreviewSource::Pointer, false));
+                }
+            },
+            onfocusin: move |_| preview.call((PreviewSource::Focus, true)),
+            onfocusout: move |_| preview.call((PreviewSource::Focus, false)),
             {children}
         }
     }
