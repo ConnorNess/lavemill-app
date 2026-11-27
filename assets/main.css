@@ -23,7 +23,7 @@ svg { display: block; flex-shrink: 0; }
 .skip-link:focus { transform: translateY(0); }
 .site-header { background: rgba(255, 255, 255, 0.72); border-bottom: 1px solid var(--line); }
 body:has(.home-dashboard) .site-header { position: relative; z-index: 1; background: rgb(191 230 217 / 88%); border-color: rgb(34 92 75 / 18%); }
-.header-inner, .dashboard { width: min(1328px, 100%); margin-inline: auto; padding-inline: 48px; }
+.header-inner, .dashboard { --dashboard-max-width: 1328px; --dashboard-side-padding: 48px; width: min(var(--dashboard-max-width), 100%); margin-inline: auto; padding-inline: var(--dashboard-side-padding); }
 .header-inner { min-height: 96px; display: flex; align-items: center; gap: 28px; }
 .brand { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; text-decoration: none; font-family: Georgia, "Times New Roman", serif; font-size: 1.875rem; font-weight: 700; letter-spacing: -0.07em; }
 .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 14px; background: var(--blue); color: var(--blue-ink); }
@@ -32,9 +32,10 @@ body:has(.home-dashboard) .brand-mark { background: rgb(234 250 243 / 85%); colo
 body:has(.home-dashboard) { position: relative; min-height: 100vh; background: linear-gradient(125deg, #d4f0e6 0%, #bde7da 54%, #a7dbcc 100%) fixed; }
 body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; inset: 0; pointer-events: none; background-image: linear-gradient(0deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px), linear-gradient(90deg, rgb(24 78 62 / 7%) 0 2px, transparent 2px); background-size: 82px 82px; animation: grid-drift 6s linear infinite; }
 .home-dashboard { --home-card-max-height: 24rem; position: relative; z-index: 1; isolation: isolate; display: flex; flex-direction: column; min-height: calc(100dvh - 96px); background: transparent; }
+.dashboard.home-dashboard { width: 100%; padding-inline: 0; }
 .home-dashboard > * { position: relative; z-index: 1; }
-.home-dashboard-layout { display: grid; flex: 1; grid-template-columns: minmax(0, 1fr) 148px; align-items: stretch; gap: 22px; }
-.home-dashboard-content { display: flex; flex-direction: column; min-width: 0; }
+.home-dashboard-layout { --home-gutter: calc(var(--dashboard-side-padding) + max(0px, (100% - var(--dashboard-max-width)) / 2)); --home-shortcuts-width: 148px; display: grid; flex: 1; grid-template-columns: var(--home-gutter) minmax(0, 1fr) calc(var(--home-gutter) + var(--home-shortcuts-width) + 22px); align-items: stretch; }
+.home-dashboard-content { grid-column: 2; display: flex; flex-direction: column; min-width: 0; }
 .home-dashboard .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: auto; }
 .home-dashboard .dashboard-card { position: relative; overflow: hidden; border: 0; border-radius: 18px; background: #bde7da; box-shadow: 0 7px 20px rgb(21 73 57 / 9%); transition: box-shadow 160ms ease; }
 .home-dashboard .dashboard-list-card:focus-visible { outline: 3px solid var(--blue-ink); outline-offset: 2px; }
@@ -78,13 +79,22 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 @media (max-width: 680px) {
     .users-grid { grid-template-columns: minmax(0, 1fr); }
 }
-.homelab-shortcuts { align-self: end; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; width: 148px; margin: 0; padding-inline-start: 14px; border-inline-start: 1px solid rgb(24 78 62 / 24%); }
-.homelab-shortcut { display: inline-flex; align-items: center; gap: 10px; width: 44px; min-width: 44px; min-height: 44px; overflow: hidden; padding: 5px; border: 1px solid rgb(24 78 62 / 22%); border-radius: 12px; background: rgb(234 250 243 / 85%); color: #1e5948; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: width 180ms ease, background-color 160ms ease, color 160ms ease, border-color 160ms ease; }
-.homelab-shortcut:is(:hover, :focus-visible) { width: 100%; border-color: #135b43; background: #135b43; color: #fff; }
+.homelab-shortcuts { --shortcut-size: 44px; --shortcut-corner: 10px; grid-column: 3; align-self: end; justify-self: end; width: var(--home-shortcuts-width); margin-inline-end: 15px; }
+.homelab-shortcut-rail { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; inline-size: var(--shortcut-size); margin-inline-start: auto; }
+.homelab-shortcut-rail::before, .homelab-shortcut-rail::after { content: ""; position: absolute; z-index: -1; pointer-events: none; clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
+.homelab-shortcut-rail::before { inset: 0; background: rgb(24 78 62 / 18%); }
+.homelab-shortcut-rail::after { --shortcut-corner: 9.4px; inset: 1px; background: rgb(212 240 230 / 20%); }
+.homelab-shortcut { --shortcut-width: var(--shortcut-size); position: relative; display: inline-flex; flex: 0 0 auto; flex-direction: row-reverse; align-items: center; gap: 10px; inline-size: var(--shortcut-width); min-block-size: var(--shortcut-size); overflow: hidden; padding: 5px; border: 1px solid transparent; border-radius: 0; color: #1e5948; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: inline-size 180ms ease, margin 180ms ease, background-color 160ms ease, color 160ms ease; }
+.homelab-shortcut:first-child { clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
+.homelab-shortcut:is(:hover, :focus-visible) { --shortcut-width: var(--home-shortcuts-width); z-index: 1; background: #135b43; color: #fff; }
+.homelab-shortcut:focus-visible { outline-color: #fff; outline-offset: -6px; }
 .homelab-shortcut > span:nth-child(2) { opacity: 0; transition: opacity 120ms ease; }
 .homelab-shortcut:is(:hover, :focus-visible) > span:nth-child(2) { opacity: 1; }
 .homelab-shortcut .card-icon { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 8px; background: transparent; color: currentColor; }
 .homelab-shortcut .card-icon svg { width: 18px; height: 18px; }
+@media (prefers-reduced-motion: reduce) {
+    .homelab-shortcut, .homelab-shortcut > span:nth-child(2) { transition: none; }
+}
 .dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 22px; }
 .dashboard-card { min-width: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 4px 18px #283d4813; }
 .card-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 24px 22px; border-bottom: 1px solid var(--line); }
@@ -115,7 +125,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 }
 @media (min-width: 900px) and (320px <= height < 480px) {
     .home-dashboard { padding-block: 16px; }
-    .home-dashboard .homelab-shortcuts { max-height: 100%; overflow-y: auto; }
+    .home-dashboard .homelab-shortcuts { max-height: 100%; overflow-y: auto; scrollbar-width: none; }
 }
 @media (max-width: 899px), (max-height: 319px) {
     .home-dashboard .dashboard-list-card { max-height: min(var(--home-card-max-height), 65dvh); overflow-y: auto; }
@@ -343,7 +353,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 }
 
 @media (max-width: 1150px) {
-    .header-inner, .dashboard { padding-inline: 28px; }
+    .header-inner, .dashboard { --dashboard-side-padding: 28px; }
     .card-heading { padding: 20px 18px; gap: 10px; }
     .card-body { padding-inline: 18px; }
     .card-heading-copy { min-width: 120px; }
@@ -353,11 +363,13 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 
 @media (max-width: 899px) {
     .dashboard-grid, .home-dashboard .dashboard-grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
-    .dashboard { max-width: 680px; padding-top: 36px; }
-    .home-dashboard-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .dashboard { --dashboard-max-width: 680px; padding-top: 36px; }
+    .home-dashboard-layout { grid-template-columns: var(--home-gutter) minmax(0, 1fr) var(--home-gutter); row-gap: 12px; }
     .home-dashboard-content { grid-row: 2; }
-    .home-dashboard .homelab-shortcuts { grid-row: 1; flex-direction: row; justify-content: flex-end; align-items: center; width: auto; margin: 0 0 12px; padding: 0 0 10px; border-inline-start: 0; border-bottom: 1px solid rgb(24 78 62 / 24%); }
-    .home-dashboard .homelab-shortcut:is(:hover, :focus-visible) { width: 148px; }
+    .home-dashboard .homelab-shortcuts { grid-row: 1; grid-column: 1 / -1; width: max-content; margin-bottom: 12px; padding-bottom: 10px; }
+    .homelab-shortcut-rail { flex-direction: row; inline-size: max-content; }
+    .homelab-shortcut { margin-inline-start: calc(var(--shortcut-size) - var(--shortcut-width)); }
+    .homelab-shortcut:nth-last-child(n + 3) { flex-direction: row; margin-inline-start: 0; margin-inline-end: calc(var(--shortcut-size) - var(--shortcut-width)); }
     .card-heading { padding: 22px; gap: 12px; }
     .count-badge { margin-left: auto; }
     .card-body { padding-inline: 22px; }
@@ -366,7 +378,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 }
 
 @media (max-width: 420px) {
-    .header-inner, .dashboard { padding-inline: 18px; }
+    .header-inner, .dashboard { --dashboard-side-padding: 18px; }
     .header-inner { min-height: 80px; gap: 12px; }
     .brand { font-size: 1.65rem; gap: 8px; }
     .brand-mark { width: 36px; height: 36px; border-radius: 12px; }
@@ -385,7 +397,6 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
     .completed-assignee { margin-left: 54px; }
     .undo-button { margin-left: auto; }
     .header-actions .undo-button { margin-left: 0; }
-    .home-dashboard .homelab-shortcut:is(:hover, :focus-visible) { width: 108px; }
     .task-group-heading { padding-inline: 18px; }
     .add-task-panel { padding: 20px; }
 }
