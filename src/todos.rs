@@ -313,10 +313,16 @@ fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum TaskField {
+    Title,
+    Description,
+}
+
 #[derive(Clone)]
-enum TaskDraft {
-    Title(String),
-    Description(String),
+struct TaskDraft {
+    field: TaskField,
+    value: String,
 }
 
 #[component]
@@ -325,10 +331,18 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
     let mut error = use_signal(String::new);
     let mut pending = use_signal(|| false);
     let mut draft = use_signal(|| None::<TaskDraft>);
+    let mut focus_after_edit = use_signal(|| None::<TaskField>);
     let id = task.id;
     let initial_title = task.title.clone();
+    let initial_description = task.description.clone().unwrap_or_default();
     let completed = task.status == "completed";
     let open = task.status == "open";
+    let active_draft = draft();
+    let finish_edit = Callback::new(move |()| {
+        focus_after_edit.set(draft.peek().as_ref().map(|edit| edit.field));
+        draft.set(None);
+        error.set(String::new());
+    });
     let submit = Callback::new(move |change: Change| {
         if pending() {
             return;
@@ -340,7 +354,7 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
             match save(change).await {
                 Ok(()) => {
                     if editing {
-                        draft.set(None);
+                        finish_edit.call(());
                     }
                     data.restart();
                 }
@@ -348,6 +362,36 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
             }
             pending.set(false);
         });
+    });
+    let save_edit = Callback::new(move |()| {
+        if pending() {
+            return;
+        }
+        let Some(TaskDraft { field, value }) = draft() else {
+            return;
+        };
+        let change = match field {
+            TaskField::Title if value.trim().is_empty() => {
+                error.set("Enter a task title.".into());
+                return;
+            }
+            TaskField::Title => Change::Rename { id, title: value },
+            TaskField::Description => Change::Describe {
+                id,
+                description: value,
+            },
+        };
+        submit.call(change);
+    });
+    let cancel_edit = Callback::new(move |()| {
+        if !pending() {
+            finish_edit.call(());
+        }
+    });
+    let begin_edit = Callback::new(move |edit: TaskDraft| {
+        focus_after_edit.set(None);
+        error.set(String::new());
+        draft.set(Some(edit));
     });
     let assignee = task
         .assignee_id
@@ -367,55 +411,43 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                 }
             }
             div { class: "row-copy",
-                span { class: "row-title", "{task.title}" }
-                time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
-                span { class: "row-note", "Reported by {task.reporter}" }
-                if let Some(description) = task.description.as_ref() { p { "{description}" } }
-                if let Some(edit) = draft() {
-                    form { class: "task-edit-form", onsubmit: move |event| {
-                        event.prevent_default();
-                        match draft() {
-                            Some(TaskDraft::Title(title)) if !title.trim().is_empty() => submit.call(Change::Rename { id, title }),
-                            Some(TaskDraft::Description(description)) => submit.call(Change::Describe { id, description }),
-                            _ => (),
-                        }
-                    },
-                        match edit {
-                            TaskDraft::Title(title) => rsx! {
-                                label {
-                                    "Task title"
-                                    TodoTextField { icon: "tasks",
-                                        input { r#type: "text", value: "{title}", disabled: pending(), required: true, autofocus: true,
-                                            oninput: move |event| draft.set(Some(TaskDraft::Title(event.value()))) }
-                                    }
-                                }
-                                div { class: "task-edit-actions",
-                                    button { r#type: "submit", disabled: pending() || title.trim().is_empty(), "Save title" }
-                                    button { r#type: "button", class: "secondary-button", disabled: pending(),
-                                        onclick: move |_| { draft.set(None); error.set(String::new()); }, "Cancel" }
-                                }
-                            },
-                            TaskDraft::Description(description) => rsx! {
-                                label {
-                                    "Description"
-                                    TodoTextField { icon: "description",
-                                        textarea { value: "{description}", disabled: pending(),
-                                            oninput: move |event| draft.set(Some(TaskDraft::Description(event.value()))) }
-                                    }
-                                }
-                                button { r#type: "submit", disabled: pending(), "Save description" }
-                            },
+                if let Some(TaskDraft { field: TaskField::Title, value }) = active_draft.as_ref() {
+                    TaskInlineEditor { field: TaskField::Title, value: value.clone(), pending: pending(),
+                        on_change: move |value| draft.set(Some(TaskDraft { field: TaskField::Title, value })),
+                        on_save: save_edit, on_cancel: cancel_edit,
+                    }
+                } else {
+                    div { class: "task-edit-line",
+                        span { class: "row-title", "{task.title}" }
+                        if open {
+                            TaskPencil { label: format!("Edit title of {}", task.title),
+                                disabled: pending() || active_draft.is_some(),
+                                restore_focus: focus_after_edit() == Some(TaskField::Title),
+                                on_edit: move |_| begin_edit.call(TaskDraft { field: TaskField::Title, value: initial_title.clone() }),
+                            }
                         }
                     }
-                } else if open {
-                    div { class: "task-edit-actions",
-                        button { r#type: "button", class: "secondary-button", disabled: pending(),
-                            onclick: move |_| draft.set(Some(TaskDraft::Title(initial_title.clone()))),
-                            "Rename task"
+                }
+                time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
+                span { class: "row-note", "Reported by {task.reporter}" }
+                if let Some(TaskDraft { field: TaskField::Description, value }) = active_draft.as_ref() {
+                    TaskInlineEditor { field: TaskField::Description, value: value.clone(), pending: pending(),
+                        on_change: move |value| draft.set(Some(TaskDraft { field: TaskField::Description, value })),
+                        on_save: save_edit, on_cancel: cancel_edit,
+                    }
+                } else if open || task.description.is_some() {
+                    div { class: "task-edit-line task-description-line",
+                        if let Some(description) = task.description.as_ref() {
+                            p { class: "task-description", "{description}" }
+                        } else {
+                            span { class: "row-note", "No description" }
                         }
-                        button { r#type: "button", class: "secondary-button", disabled: pending(),
-                            onclick: move |_| draft.set(Some(TaskDraft::Description(task.description.clone().unwrap_or_default()))),
-                            "Edit description"
+                        if open {
+                            TaskPencil { label: format!("Edit description of {}", task.title),
+                                disabled: pending() || active_draft.is_some(),
+                                restore_focus: focus_after_edit() == Some(TaskField::Description),
+                                on_edit: move |_| begin_edit.call(TaskDraft { field: TaskField::Description, value: initial_description.clone() }),
+                            }
                         }
                     }
                 }
@@ -432,6 +464,96 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                     span { class: "sr-only", "Assign {task.title} to" }
                     MemberSelect { value: assignee, members, disabled: pending(),
                         on_change: move |assignee| submit.call(Change::Assign { id, assignee }) }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn TaskPencil(
+    label: String,
+    disabled: bool,
+    restore_focus: bool,
+    on_edit: EventHandler<MouseEvent>,
+) -> Element {
+    rsx! {
+        button { class: "task-icon-button", r#type: "button", aria_label: "{label}", disabled,
+            onclick: on_edit,
+            onmounted: move |event: MountedEvent| async move {
+                if restore_focus {
+                    focus_task_control(event).await;
+                }
+            },
+            crate::Icon { kind: "pencil" }
+        }
+    }
+}
+
+async fn focus_task_control(event: MountedEvent) {
+    let _ = event.set_focus(true).await;
+}
+
+#[component]
+fn TaskInlineEditor(
+    field: TaskField,
+    value: String,
+    pending: bool,
+    on_change: EventHandler<String>,
+    on_save: EventHandler<()>,
+    on_cancel: EventHandler<()>,
+) -> Element {
+    use dioxus::html::input_data::keyboard_types::Modifiers;
+
+    let (icon, label, save_label, cancel_label) = match field {
+        TaskField::Title => ("tasks", "Task title", "Save title", "Cancel title edit"),
+        TaskField::Description => (
+            "description",
+            "Task description",
+            "Save description",
+            "Cancel description edit",
+        ),
+    };
+    rsx! {
+        form { class: "task-edit-form",
+            onsubmit: move |event| {
+                event.prevent_default();
+                on_save.call(());
+            },
+            onkeydown: move |event| {
+                if event.key() == Key::Escape && !event.is_composing() {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    on_cancel.call(());
+                }
+            },
+            TodoTextField { icon,
+                if field == TaskField::Title {
+                    input { r#type: "text", aria_label: label, aria_required: "true", value: "{value}", readonly: pending,
+                        onmounted: focus_task_control,
+                        oninput: move |event| on_change.call(event.value()),
+                    }
+                } else {
+                    textarea { aria_label: label, value: "{value}", readonly: pending,
+                        onmounted: focus_task_control,
+                        oninput: move |event| on_change.call(event.value()),
+                        onkeydown: move |event| {
+                            if event.key() == Key::Enter && !event.is_composing()
+                                && !event.modifiers().contains(Modifiers::SHIFT)
+                            {
+                                event.prevent_default();
+                                on_save.call(());
+                            }
+                        },
+                    }
+                }
+            }
+            div { class: "task-edit-actions",
+                button { class: "task-icon-button task-save-edit", r#type: "submit", aria_label: save_label, disabled: pending,
+                    crate::Icon { kind: "check" }
+                }
+                button { class: "task-icon-button", r#type: "button", aria_label: cancel_label, disabled: pending,
+                    onclick: move |_| on_cancel.call(()), crate::Icon { kind: "close" }
                 }
             }
         }
