@@ -163,6 +163,7 @@ pub fn CalendarCard() -> Element {
     let agenda = agenda.read();
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "calendar-title",
+            Link { class: "card-hit-area", to: Route::Calendar { view: None, date: None, notice: None }, aria_label: "Open shared calendar" }
             CardHeading {
                 icon: "calendar",
                 title: "Shared Calendar",

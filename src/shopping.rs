@@ -68,6 +68,7 @@ pub(super) fn ShoppingCard() -> Element {
         .or_else(|| initial.as_ref()?.as_ref().ok());
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "shopping-title",
+            Link { class: "card-hit-area", to: Route::Shopping {}, aria_label: "Open shopping list" }
             CardHeading { icon: "shopping", title: "Shopping List", id: "shopping-title",
                 count: match items {
                     Some(items) => format!("{} to get", items.iter().filter(|item| !item.checked).count()),
@@ -99,7 +100,6 @@ pub(super) fn ShoppingCard() -> Element {
                     p { class: "shopping-empty", role: "status", "Loading shopping list…" }
                 }
             }
-            Link { class: "card-page-link", to: Route::Shopping {}, "View shopping list" }
         }
     }
 }

@@ -187,6 +187,7 @@ pub(super) fn TasksCard() -> Element {
     });
     rsx! {
         section { class: "dashboard-card", aria_labelledby: "tasks-title",
+            Link { class: "card-hit-area", to: Route::Todos {}, aria_label: "Open to-dos" }
             CardHeading { icon: "tasks", title: "Today’s To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
                 if refresh_failed() {
@@ -210,7 +211,6 @@ pub(super) fn TasksCard() -> Element {
                     p { "Loading tasks…" }
                 }
             }
-            Link { class: "card-page-link", to: Route::Todos {}, "View all to-dos" }
         }
     }
 }
