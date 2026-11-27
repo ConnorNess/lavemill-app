@@ -542,6 +542,9 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .empty-tasks { margin: 0; padding: 20px 22px; font-size: 0.875rem; color: var(--muted); }
 .editable-task { display: flex; align-items: center; gap: 12px; padding: 16px 22px 16px 12px; }
 .editable-task + .editable-task { border-top: 1px solid var(--line); }
+.task-edit-form label { display: grid; gap: 6px; }
+.task-edit-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.task-edit-actions button { font-size: 0.875rem; }
 .task-check-target { flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; cursor: pointer; }
 .task-check-target input { width: 20px; height: 20px; margin: 0; accent-color: var(--accent-ink); cursor: pointer; }
 input, select, button { font: inherit; }
