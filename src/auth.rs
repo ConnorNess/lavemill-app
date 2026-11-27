@@ -341,7 +341,8 @@ pub mod server {
                     }
                     request.extensions_mut().insert(state.calendars.clone());
                     request.extensions_mut().insert(state.tautulli.clone());
-                    if kind == RequestKind::ActivityApi {
+                    // Home also loads activity during its initial server render.
+                    if kind == RequestKind::ActivityApi || request.uri().path() == "/" {
                         request.extensions_mut().insert(state.steam.clone());
                     }
                 }
