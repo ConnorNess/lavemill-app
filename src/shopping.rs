@@ -136,7 +136,7 @@ pub(super) fn Shopping() -> Element {
     let load_failed = items.is_none() && matches!(initial.as_ref(), Some(Err(_)));
     rsx! {
         document::Title { "Lavemill · Shopping List" }
-        main { id: "main", class: "dashboard shopping-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page shopping-page", tabindex: "-1",
             div { class: "shopping-heading",
                 h1 { "Shopping List" }
             }
@@ -172,7 +172,7 @@ pub(super) fn Shopping() -> Element {
 fn ShoppingGroup(checked: bool, items: Vec<ShoppingItem>, editing: Signal<Option<i64>>) -> Element {
     let title = if checked { "Picked up" } else { "To get" };
     rsx! {
-        section { class: "shopping-group", aria_label: title,
+        section { class: "shopping-group surface-panel", aria_label: title,
             div { class: "shopping-group-heading",
                 h2 { "{title}" }
                 span { class: "count-badge", "{items.len()}" }
@@ -196,7 +196,7 @@ fn QuickAdd() -> Element {
     let mut error = use_signal(String::new);
     let mut feedback = use_signal(String::new);
     rsx! {
-        form { class: "shopping-quick-add", aria_label: "Add shopping item",
+        form { class: "shopping-quick-add surface-panel", aria_label: "Add shopping item",
             onsubmit: move |event| {
                 event.prevent_default();
                 let submitted_name = name();
@@ -357,7 +357,7 @@ fn RemovedNotice() -> Element {
     let mut removed = use_context::<Signal<Option<RemovedItem>>>();
     let mut error = use_signal(|| None::<(i64, String)>);
     rsx! {
-        div { class: "shopping-removal-status",
+        div { class: "shopping-removal-status surface-panel",
             if let Some(RemovedItem { id, name }) = removed() {
                 p { role: "status", "Removed {name}." }
                 button { class: "secondary-button", r#type: "button", aria_label: "Undo removal of {name}",

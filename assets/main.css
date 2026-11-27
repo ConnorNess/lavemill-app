@@ -206,7 +206,7 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
 .home-dashboard .card-body { padding: 0 26px 22px; }
 .home-dashboard .card-body .list-row { padding-block: 10px; }
 @media (forced-colors: none) {
-    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"] {
+    :is(.home-dashboard, .interior-page) :is(.task-check-target, .shopping-check) input[type="checkbox"] {
         --checkbox-green: rgb(19 91 67 / 76%);
         appearance: none;
         display: grid;
@@ -217,10 +217,10 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
         border-radius: 1px;
         transform: rotate(45deg);
     }
-    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked {
+    :is(.home-dashboard, .interior-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked {
         background: var(--checkbox-green) padding-box;
     }
-    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked::before {
+    :is(.home-dashboard, .interior-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:checked::before {
         content: "";
         width: 7px;
         height: 4px;
@@ -228,7 +228,7 @@ body:has(.home-dashboard)::before { content: ""; position: fixed; z-index: 0; in
         border-width: 0 0 2px 2px;
         transform: rotate(-90deg);
     }
-    :is(.home-dashboard, .todos-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:disabled { opacity: 0.55; }
+    :is(.home-dashboard, .interior-page) :is(.task-check-target, .shopping-check) input[type="checkbox"]:disabled { opacity: 0.55; }
 }
 .home-dashboard .card-page-link { display: none; }
 @media (max-width: 600px) {
@@ -369,7 +369,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .task-group-heading .count-badge { margin-left: auto; }
 .task-group-heading .overdue { color: #8d4530; }
 .todos-page textarea { width: 100%; min-height: 4rem; padding: 10px 12px; border: 1px solid var(--field-border); background: var(--surface); color: var(--ink); font: inherit; resize: vertical; }
-.todos-page .task-check-target input { accent-color: var(--mint-focus); }
+.interior-page :is(.task-check-target, .shopping-check) input { accent-color: var(--mint-focus); }
 .empty-tasks { margin: 0; padding: 20px 22px; font-size: 0.875rem; color: var(--muted); }
 .editable-task { display: flex; align-items: center; gap: 12px; padding: 16px 22px 16px 12px; }
 .editable-task + .editable-task { border-top: 1px solid var(--line); }
@@ -496,15 +496,13 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
     .recipe-editor-ingredient { grid-template-columns: minmax(0, 1fr); }
 }
 .shopping-heading { margin-bottom: 24px; }
-.shopping-heading h1 { margin: 0; font-size: 1.75rem; font-weight: 650; letter-spacing: -0.04em; }
 .shopping-groups { display: grid; gap: 22px; }
-.shopping-group { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 3px 14px #283d4809; }
 .shopping-group-heading { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .shopping-group-heading .count-badge { margin-left: auto; }
 .shopping-empty { margin: 0; padding: 20px 0; color: var(--muted); font-size: 0.875rem; }
 .shopping-group > .shopping-empty { padding-inline: 22px; }
 .shopping-page-list { padding-inline: 22px; }
-.shopping-quick-add { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: end; gap: 16px; padding: 22px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.shopping-quick-add { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; align-items: end; gap: 16px; padding: 22px; margin-bottom: 24px; }
 .shopping-form-field { min-width: 0; display: grid; gap: 8px; }
 .shopping-form-field label { font-size: 0.875rem; font-weight: 600; }
 .shopping-form-field input { width: 100%; }
@@ -515,18 +513,19 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .shopping-item-row + .shopping-item-row { border-top: 1px solid var(--line); }
 .shopping-check { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; cursor: pointer; }
 .shopping-check input { width: 20px; height: 20px; margin: 0; accent-color: var(--blue-ink); cursor: pointer; }
-.secondary-button, .edit-item-button { border: 1px solid #c8dce7; background: var(--surface); color: var(--blue-ink); }
-.secondary-button:hover, .edit-item-button:hover:not(:disabled) { background: #eef6fa; }
-.edit-item-button { flex-shrink: 0; padding-inline: 12px; font-size: 0.875rem; }
+.secondary-button { border: 1px solid #c8dce7; background: var(--surface); color: var(--blue-ink); }
+.secondary-button:hover { background: #eef6fa; }
+.edit-item-button { flex-shrink: 0; padding-inline: 12px; border: 1px solid var(--field-border); border-radius: 4px; background: var(--surface); color: var(--blue-ink); font-size: 0.875rem; }
+.edit-item-button:hover:not(:disabled) { background: var(--blue); }
 .edit-item-button:disabled { opacity: 0.5; cursor: default; }
 .remove-item-button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; background: transparent; color: #81534a; font-size: 1.5rem; line-height: 1; }
 .remove-item-button:hover { border-color: #ead9d5; background: #fcf1ef; }
-.shopping-edit-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; padding-block: 8px; }
+.shopping-edit-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; padding: 12px; background: var(--blue); }
 .shopping-edit-actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .shopping-edit-actions .primary-button { margin: 0; }
 .shopping-edit-actions .remove-item-button { margin-left: auto; }
 .shopping-removal-status:empty { display: none; }
-.shopping-removal-status { display: flex; align-items: center; gap: 14px; padding: 12px 18px; margin-bottom: 22px; border: 1px solid #c8dce7; border-radius: 12px; background: #eef6fa; }
+.shopping-removal-status { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 18px; margin-bottom: 22px; }
 .shopping-removal-status p { min-width: 0; flex: 1; margin: 0; overflow-wrap: anywhere; }
 
 @media (max-width: 600px) {
