@@ -195,7 +195,7 @@ pub(super) fn ActivitySection() -> Element {
                 h2 { id: "user-activity-heading", "Activity" }
                 span { class: "activity-live-count", "{snapshot.rows.len()} active" }
             }
-            ul { class: "activity-list",
+            ul { class: "activity-list", tabindex: "0", aria_labelledby: "user-activity-heading",
                 for row in &snapshot.rows {
                     li { class: "activity-person", key: "{row.member_id}",
                         strong { class: "activity-person-name", "{row.name}" }

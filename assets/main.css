@@ -99,6 +99,19 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .activity-live-count::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #4c88a5; }
 .activity-list, .activity-stream { list-style: none; margin: 0; padding: 0; }
 .activity-list { border-block: 1px solid var(--line); }
+@media (min-width: 900px) and (min-height: 480px) {
+    .home-dashboard { height: calc(100dvh - 97px); min-height: 0; }
+    .home-dashboard-layout { min-height: 0; grid-template-rows: minmax(0, 1fr); }
+    .home-dashboard-content { min-height: 0; }
+    .home-dashboard .activity-section { display: flex; flex-direction: column; min-height: 0; }
+    .home-dashboard .activity-heading { flex-shrink: 0; }
+    .home-dashboard .activity-list { overflow-y: auto; }
+    .home-dashboard .activity-list:focus-visible { outline: 3px solid var(--blue-ink); outline-offset: 2px; }
+    .home-dashboard .dashboard-grid { flex-shrink: 0; max-height: 100%; grid-template-rows: minmax(0, 1fr); }
+    .home-dashboard .activity-section + .dashboard-grid { max-height: calc(100% - 7rem); }
+    .home-dashboard .dashboard-card { overflow-y: auto; }
+    .home-dashboard .card-heading { flex-shrink: 0; }
+}
 .activity-person { display: grid; grid-template-columns: minmax(150px, 0.7fr) minmax(0, 3fr); align-items: center; gap: 20px; padding: 10px 8px; }
 .activity-person + .activity-person { border-top: 1px solid var(--line); }
 .activity-person-name { overflow-wrap: anywhere; font-size: 0.9375rem; }
