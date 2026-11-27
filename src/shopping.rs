@@ -68,7 +68,7 @@ pub(super) fn ShoppingCard() -> Element {
         .or_else(|| initial.as_ref()?.as_ref().ok());
     rsx! {
         section { class: "dashboard-card dashboard-list-card", tabindex: "0", aria_labelledby: "shopping-title",
-            Link { class: "card-hit-area", to: Route::Shopping {}, aria_label: "Open shopping list" }
+            crate::card_navigation::HomeCardLink { to: Route::Shopping {}, label: "Open shopping list", page: "shopping" }
             CardHeading { icon: "shopping", title: "Shopping List", id: "shopping-title",
                 count: match items {
                     Some(items) => format!("{} to get", items.iter().filter(|item| !item.checked).count()),

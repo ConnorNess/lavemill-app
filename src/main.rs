@@ -8,6 +8,7 @@ mod calendar;
 use calendar::{Calendar, CalendarCard};
 #[cfg(feature = "server")]
 mod calendar_server;
+mod card_navigation;
 mod homelab;
 #[cfg(feature = "server")]
 mod household_time;
@@ -126,11 +127,8 @@ fn HouseholdLayout() -> Element {
         a { class: "skip-link", href: "#main", "Skip to content" }
         header { class: "site-header",
             div { class: "header-inner",
-                Link { class: "header-tile brand", to: Route::Home {},
-                    Icon { kind: "home" }
-                    span { "lavemill" }
-                }
-                Link { class: "header-tile recipes-link", to: Route::Recipes {},
+                card_navigation::HomeLink {}
+                Link { class: "header-tile recipes-link", to: Route::Recipes {}, "data-home-return-anchor": "recipes",
                     Icon { kind: "recipes" }
                     span { "Recipes" }
                 }
@@ -145,9 +143,7 @@ fn HouseholdLayout() -> Element {
                             aria_label: "Account options", aria_expanded: account_open(),
                             onclick: move |_| account_open.toggle(),
                         }
-                        Link { class: "account-icon", to: Route::Users {}, aria_label: "Users", title: "Users",
-                            Icon { kind: "users" }
-                        }
+                        card_navigation::UsersLink {}
                     } else {
                         button { class: "account-icon", r#type: "button",
                             aria_label: "Account options", aria_expanded: account_open(),

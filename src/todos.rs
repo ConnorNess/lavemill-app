@@ -187,7 +187,7 @@ pub(super) fn TasksCard() -> Element {
     });
     rsx! {
         section { class: "dashboard-card dashboard-list-card", tabindex: "0", aria_labelledby: "tasks-title",
-            Link { class: "card-hit-area", to: Route::Todos {}, aria_label: "Open to-dos" }
+            crate::card_navigation::HomeCardLink { to: Route::Todos {}, label: "Open to-dos", page: "todos" }
             CardHeading { icon: "tasks", title: "To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
                 if refresh_failed() {
@@ -229,6 +229,7 @@ fn TaskPreviewRow(
     let revision = if failed_id == Some(id) { revision } else { 0 };
     rsx! {
         li { class: if completed { "list-row is-done" } else { "list-row" },
+            "data-task-transition-id": "{id}",
             if task.status == "open" || completed {
                 label { class: "task-check-target",
                     // A keyed child lets a rejected change replace the browser's toggled input.
@@ -342,6 +343,7 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
         .unwrap_or_default();
     rsx! {
         li { class: if completed { "editable-task is-done" } else { "editable-task" },
+            "data-task-transition-id": "{id}",
             if open || completed {
                 label { class: "task-check-target",
                     input { r#type: "checkbox", checked: completed, disabled: pending() || (completed && !task.can_reopen),
