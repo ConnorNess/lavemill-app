@@ -210,6 +210,7 @@ fn Icon(kind: &'static str) -> Element {
         "home" => "M3 10 12 3l9 7M5 9v11h14V9M9 20v-7h6v7",
         "tasks" => "m3 6 2 2 3-4M11 6h10M3 13l2 2 3-4M11 13h10M4 20h3M11 20h10",
         "description" => "M4 5h16M4 10h16M4 15h16M4 20h10",
+        "chevron-down" => "m6 9 6 6 6-6",
         "shopping" => "M3 3h2l3 12h11l2-8H6M9 20h.01M18 20h.01",
         "calendar" => {
             "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2M7 14h2M13 14h2M7 18h2"

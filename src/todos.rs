@@ -446,9 +446,11 @@ fn MemberSelect(
     on_change: EventHandler<Option<i64>>,
 ) -> Element {
     rsx! {
-        select { value: "{value}", disabled, onchange: move |event| on_change.call(event.value().parse().ok()),
-            option { value: "", "Unassigned" }
-            for member in members { option { key: "{member.id}", value: "{member.id}", "{member.name}" } }
+        TodoSelectField {
+            select { value: "{value}", disabled, onchange: move |event| on_change.call(event.value().parse().ok()),
+                option { value: "", "Unassigned" }
+                for member in members { option { key: "{member.id}", value: "{member.id}", "{member.name}" } }
+            }
         }
     }
 }
@@ -459,6 +461,16 @@ fn TodoTextField(icon: &'static str, children: Element) -> Element {
         span { class: "todo-field todo-text-field",
             span { class: "todo-field-icon", crate::Icon { kind: icon } }
             {children}
+        }
+    }
+}
+
+#[component]
+fn TodoSelectField(children: Element) -> Element {
+    rsx! {
+        span { class: "todo-field todo-select-field",
+            {children}
+            span { class: "todo-field-icon", crate::Icon { kind: "chevron-down" } }
         }
     }
 }
@@ -514,16 +526,18 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
                     input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", disabled: pending(), oninput: move |event| due.set(event.value()) }
                 }
                 label { r#for: "new-task-repeat", "Repeat" }
-                select { id: "new-task-repeat", disabled: pending(), onchange: move |event| repeat.set(match event.value().as_str() {
-                    "daily" => Repeat::Daily,
-                    "weekly" => Repeat::Weekly,
-                    "monthly" => Repeat::Monthly,
-                    _ => Repeat::Once,
-                }),
-                    option { value: "once", "Once" }
-                    option { value: "daily", "Daily" }
-                    option { value: "weekly", "Weekly" }
-                    option { value: "monthly", "Monthly" }
+                TodoSelectField {
+                    select { id: "new-task-repeat", disabled: pending(), onchange: move |event| repeat.set(match event.value().as_str() {
+                        "daily" => Repeat::Daily,
+                        "weekly" => Repeat::Weekly,
+                        "monthly" => Repeat::Monthly,
+                        _ => Repeat::Once,
+                    }),
+                        option { value: "once", "Once" }
+                        option { value: "daily", "Daily" }
+                        option { value: "weekly", "Weekly" }
+                        option { value: "monthly", "Monthly" }
+                    }
                 }
                 label {
                     "Assigned to"

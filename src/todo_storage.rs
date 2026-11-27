@@ -50,9 +50,9 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
         .map_err(database_error)?
         .collect::<Result<_, _>>()
         .map_err(database_error)?;
-    let mut statement = db.prepare(
-        "SELECT id, first_name || ' ' || last_name FROM users ORDER BY first_name, last_name, username",
-    ).map_err(database_error)?;
+    let mut statement = db
+        .prepare("SELECT id, first_name FROM users ORDER BY first_name, last_name, username")
+        .map_err(database_error)?;
     let members = statement
         .query_map([], |row| {
             Ok(Member {
@@ -375,6 +375,8 @@ mod tests {
             Some("Sam Lee")
         );
         assert_eq!(tasks.tasks[0].assignee.as_deref(), Some("Sam Lee Two"));
+        assert_eq!(tasks.members[1].id, 2);
+        assert_eq!(tasks.members[1].name, "Sam Lee");
         assert_eq!(tasks.tasks[0].description.as_deref(), Some("Bring gloves"));
         apply(&mut db, today, 2, Change::Reopen { id: 1 }).unwrap();
         let task = &list(&mut db, today).unwrap().tasks[0];
