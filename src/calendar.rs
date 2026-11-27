@@ -371,37 +371,38 @@ fn MonthGrid(
 ) -> Element {
     let selected_day = days.iter().find(|day| day.date == selected);
     rsx! {
-        div {
-            class: "calendar-month",
+        div { class: "calendar-month-frame surface-panel",
             role: "group",
             aria_label: "Month calendar",
-            for day in days.iter().take(7) {
-                div {
-                    key: "heading-{day.weekday}",
-                    class: "calendar-month-weekday",
-                    "{day.weekday}"
-                }
-            }
-            for day in &days {
-                button {
-                    key: "{day.date}",
-                    class: "calendar-month-day",
-                    class: if day.outside_month { "calendar-outside-month" },
-                    r#type: "button",
-                    aria_current: if day.date == today { "date" } else { "false" },
-                    aria_pressed: day.date == selected,
-                    aria_controls: "calendar-day-events",
-                    aria_label: "{day.label}, {day.events.len()} events",
-                    onclick: {
-                        let date = day.date.clone();
-                        move |_| on_select.call(date.clone())
-                    },
-                    span { class: "calendar-month-number", "{day.number}" }
-                    for (index , event) in day.events.iter().take(3).enumerate() {
-                        span { key: "{index}", class: "calendar-month-event", "{event.title}" }
+            div { class: "calendar-month",
+                for day in days.iter().take(7) {
+                    div {
+                        key: "heading-{day.weekday}",
+                        class: "calendar-month-weekday",
+                        "{day.weekday}"
                     }
-                    if day.events.len() > 3 {
-                        span { class: "calendar-month-more", "+{day.events.len() - 3} more" }
+                }
+                for day in &days {
+                    button {
+                        key: "{day.date}",
+                        class: "calendar-month-day",
+                        class: if day.outside_month { "calendar-outside-month" },
+                        r#type: "button",
+                        aria_current: if day.date == today { "date" } else { "false" },
+                        aria_pressed: day.date == selected,
+                        aria_controls: "calendar-day-events",
+                        aria_label: "{day.label}, {day.events.len()} events",
+                        onclick: {
+                            let date = day.date.clone();
+                            move |_| on_select.call(date.clone())
+                        },
+                        span { class: "calendar-month-number", "{day.number}" }
+                        for (index , event) in day.events.iter().take(3).enumerate() {
+                            span { key: "{index}", class: "calendar-month-event", "{event.title}" }
+                        }
+                        if day.events.len() > 3 {
+                            span { class: "calendar-month-more", "+{day.events.len() - 3} more" }
+                        }
                     }
                 }
             }

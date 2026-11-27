@@ -18,8 +18,6 @@
     --panel-fill: #aad3c6;
     --panel-edge: #83ae9f;
     --panel-hover: #b7ded2;
-    --panel-top-right: linear-gradient(225deg, transparent var(--panel-corner), var(--panel-fill) var(--panel-corner)) padding-box,
-        linear-gradient(225deg, transparent calc(var(--panel-corner) + 1px), var(--panel-edge) calc(var(--panel-corner) + 1px)) border-box;
     --household-header-height: 97px;
     font-family: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
     color: var(--ink);
@@ -141,7 +139,8 @@ svg { display: block; flex-shrink: 0; }
 :is(.surface-panel, .dashboard-card, .header-tile, .login-brand), .account-menu::before {
     border: 1px solid transparent;
     border-radius: 0;
-    background: var(--panel-top-right);
+    background: linear-gradient(225deg, transparent var(--panel-corner), var(--panel-fill) var(--panel-corner)) padding-box,
+        linear-gradient(225deg, transparent calc(var(--panel-corner) + 1px), var(--panel-edge) calc(var(--panel-corner) + 1px)) border-box;
 }
 :is(.surface-panel, .dashboard-card) {
     min-width: 0;
@@ -430,12 +429,13 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .calendar-timed-time { font-size: 0.68rem; }
 .calendar-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .calendar-nav a.calendar-view-active { border-color: var(--mint-focus); background: var(--mint-focus); color: #fff; font-weight: 650; }
-.calendar-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); background: var(--line); box-shadow: var(--panel-shadow); }
-.calendar-month-weekday { padding: 8px 3px; text-align: center; background: var(--surface); color: var(--muted); font-size: 0.8rem; font-weight: 650; }
-.calendar-month-day { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 6px; min-width: 0; min-height: 6rem; border: 0; border-radius: 0; background: var(--surface); color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.calendar-month-frame { padding: 8px; }
+.calendar-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); background: var(--line); }
+.calendar-month-weekday { padding: 8px 3px; text-align: center; background: var(--panel-fill); color: var(--muted); font-size: 0.8rem; font-weight: 650; }
+.calendar-month-day { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 6px; min-width: 0; min-height: 6rem; border: 0; border-radius: 0; background: var(--panel-fill); color: inherit; text-align: left; cursor: pointer; font: inherit; }
 .calendar-month-day:hover, .calendar-month-day[aria-pressed="true"] { background: var(--blue); color: var(--blue-ink); }
 .calendar-month-day:focus-visible { outline: 2px solid var(--blue-ink); outline-offset: -2px; }
-.calendar-outside-month { background: #e9f5ef; color: var(--muted); }
+.calendar-outside-month { background: var(--panel-hover); color: var(--muted); }
 .calendar-month-number { align-self: flex-start; min-width: 1.3rem; padding: 1px 3px; border-radius: 5px; text-align: center; font-size: 0.8rem; }
 .calendar-month-day[aria-current="date"] .calendar-month-number { background: var(--blue-ink); color: var(--surface); font-weight: 650; }
 .calendar-month-event { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 3px; background: var(--blue); color: var(--blue-ink); border-radius: 3px; font-size: 0.72rem; }
@@ -491,7 +491,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .recipe-title-field { font-weight: 600; }
 .recipe-editor-section { display: grid; gap: 14px; container-type: inline-size; }
 .recipe-editor-section h2 { margin: 0 0 2px; }
-.recipe-editor .recipe-editor-subsection { display: grid; gap: 10px; margin-inline-start: 0.25rem; padding: 12px; border: 0; border-inline-start: 2px solid var(--field-border); background: var(--blue); }
+.recipe-editor .recipe-editor-subsection { display: grid; gap: 10px; margin-inline-start: 0.25rem; padding: 12px; box-shadow: none; }
 .recipe-editor-subsection > button { justify-self: start; }
 .recipe-editor label { display: grid; gap: 6px; }
 .recipe-editor :is(input, textarea) { width: 100%; min-width: 0; }
@@ -542,7 +542,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .edit-item-button:disabled { opacity: 0.5; cursor: default; }
 .remove-item-button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; border: 1px solid transparent; background: transparent; color: #81534a; font-size: 1.5rem; line-height: 1; }
 .remove-item-button:hover { border-color: #ead9d5; background: #fcf1ef; }
-.shopping-edit-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; padding: 12px; background: var(--blue); }
+.shopping-edit-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; width: 100%; padding: 12px; box-shadow: none; }
 .shopping-edit-actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .shopping-edit-actions .primary-button { margin: 0; }
 .shopping-edit-actions .remove-item-button { margin-left: auto; }

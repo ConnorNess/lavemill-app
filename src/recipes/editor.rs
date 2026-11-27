@@ -372,7 +372,7 @@ fn EditSubsection(
     };
     let (heading, item_name) = item_labels(ingredients);
     rsx! {
-        fieldset { class: "recipe-editor-subsection", aria_label: "{heading} subsection at position {index + 1}",
+        fieldset { class: "recipe-editor-subsection surface-panel", aria_label: "{heading} subsection at position {index + 1}",
             div { class: "recipe-editor-row",
                 input {
                     required: true,

@@ -314,7 +314,7 @@ fn ShoppingEditForm(
     let mut quantity = use_signal(|| item.quantity.unwrap_or_default());
     let mut error = use_signal(String::new);
     rsx! {
-        form { class: "shopping-edit-form", aria_label: "Edit {item.name}",
+        form { class: "shopping-edit-form surface-panel", aria_label: "Edit {item.name}",
             onsubmit: move |event| {
                 event.prevent_default();
                 async move {
