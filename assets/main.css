@@ -247,7 +247,13 @@ svg { display: block; flex-shrink: 0; }
 :root.home-card-transition { view-transition-name: none; }
 .home-card-transition .home-dashboard { view-transition-name: home-card-outgoing; }
 .home-card-transition .interior-page { view-transition-name: home-card-incoming; }
-::view-transition-group(home-card-incoming) { z-index: 1; }
+:root.home-card-transition::view-transition-group(*) {
+    z-index: 2;
+    animation-duration: 400ms;
+    animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+:root.home-card-transition::view-transition-group(home-card-outgoing) { z-index: 0; }
+:root.home-card-transition::view-transition-group(home-card-incoming) { z-index: 1; }
 ::view-transition-old(home-card-outgoing) {
     animation: 360ms ease-out both home-card-fade;
 }
