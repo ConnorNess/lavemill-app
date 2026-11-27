@@ -280,7 +280,7 @@ pub fn Calendar(view: Option<String>, date: Option<String>, notice: Option<Strin
                     }
                 }
             }
-            CalendarPeriod { key: "{view:?}/{date:?}", view, date }
+            CalendarPeriod { view, date }
         }
     }
 }
@@ -295,9 +295,13 @@ fn period_route(view: Option<String>, date: String) -> Route {
 
 #[component]
 fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
-    let query = CalendarViewQuery { view, date };
-    let data = use_server_future(move || calendar_view(query.clone()))?;
     let mut selected_day = use_signal(|| None::<String>);
+    let data = use_server_future(use_reactive!(|(view, date)| {
+        if selected_day.peek().is_some() {
+            selected_day.set(None);
+        }
+        calendar_view(CalendarViewQuery { view, date })
+    }))?;
     let data = data.read();
     let Some(result) = data.as_ref() else {
         return rsx! {
