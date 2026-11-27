@@ -12,6 +12,7 @@ mod card_navigation;
 mod homelab;
 #[cfg(feature = "server")]
 mod household_time;
+mod theme;
 mod users;
 use users::Users;
 #[cfg(feature = "server")]
@@ -110,6 +111,7 @@ fn App() -> Element {
 #[component]
 fn HouseholdLayout() -> Element {
     use_context_provider(|| Signal::new(None::<shopping::RemovedItem>));
+    let theme = theme::use_household_theme();
     let mut account_open = use_signal(|| false);
     let viewer = use_server_future(auth::current_viewer)?;
     let viewer = viewer.read();
@@ -125,12 +127,14 @@ fn HouseholdLayout() -> Element {
     };
     rsx! {
         a { class: "skip-link", href: "#main", "Skip to content" }
-        header { class: "site-header",
+        header { class: "site-header", "data-theme": theme.name(),
             div { class: "header-inner",
                 card_navigation::HomeLink {}
-                Link { class: "header-tile recipes-link", to: Route::Recipes {}, "data-home-return-anchor": "recipes",
-                    Icon { kind: "recipes" }
-                    span { "Recipes" }
+                card_navigation::ThemePreviewTile { to: Route::Recipes {},
+                    Link { class: "header-tile recipes-link", to: Route::Recipes {}, "data-home-return-anchor": "recipes",
+                        Icon { kind: "recipes" }
+                        span { "Recipes" }
+                    }
                 }
                 div { class: if account_open() { "account-menu is-open" } else { "account-menu" },
                     onkeydown: move |event| {
