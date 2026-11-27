@@ -67,7 +67,7 @@ pub(super) fn ShoppingCard() -> Element {
         .as_ref()
         .or_else(|| initial.as_ref()?.as_ref().ok());
     rsx! {
-        section { class: "dashboard-card", aria_labelledby: "shopping-title",
+        section { class: "dashboard-card dashboard-list-card", tabindex: "0", aria_labelledby: "shopping-title",
             Link { class: "card-hit-area", to: Route::Shopping {}, aria_label: "Open shopping list" }
             CardHeading { icon: "shopping", title: "Shopping List", id: "shopping-title",
                 count: match items {
@@ -84,14 +84,16 @@ pub(super) fn ShoppingCard() -> Element {
                         p { class: "shopping-empty", "Nothing to pick up." }
                     }
                     ul { class: "item-list shopping-list",
-                        for item in items.iter().filter(|item| !item.checked).take(4) {
+                        for item in items.iter().filter(|item| !item.checked) {
                             PreviewRow { key: "{item.id}", item: item.clone() }
                         }
                     }
-                    if let Some(item) = items.iter().find(|item| item.checked) {
+                    if items.iter().any(|item| item.checked) {
                         h3 { class: "list-divider", "Already picked up" }
                         ul { class: "item-list shopping-list",
-                            PreviewRow { key: "{item.id}", item: item.clone() }
+                            for item in items.iter().filter(|item| item.checked) {
+                                PreviewRow { key: "{item.id}", item: item.clone() }
+                            }
                         }
                     }
                 } else if matches!(initial.as_ref(), Some(Err(_))) {
