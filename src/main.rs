@@ -107,6 +107,7 @@ fn App() -> Element {
 #[component]
 fn HouseholdLayout() -> Element {
     use_context_provider(|| Signal::new(None::<shopping::RemovedItem>));
+    let mut account_open = use_signal(|| false);
     let viewer = use_server_future(auth::current_viewer)?;
     let viewer = viewer.read();
     let is_admin = match viewer.as_ref() {
@@ -123,21 +124,37 @@ fn HouseholdLayout() -> Element {
         a { class: "skip-link", href: "#main", "Skip to content" }
         header { class: "site-header",
             div { class: "header-inner",
-                Link { class: "brand", to: Route::Home {},
-                    span { class: "brand-mark", Icon { kind: "home" } }
+                Link { class: "header-tile brand", to: Route::Home {},
+                    Icon { kind: "home" }
                     span { "lavemill" }
                 }
-                div { class: "header-actions",
+                Link { class: "header-tile recipes-link", to: Route::Recipes {},
+                    Icon { kind: "recipes" }
+                    span { "Recipes" }
+                }
+                div { class: if account_open() { "account-menu is-open" } else { "account-menu" },
+                    onkeydown: move |event| {
+                        if event.key() == Key::Escape {
+                            account_open.set(false);
+                        }
+                    },
                     if is_admin {
-                        Link { class: "header-icon-link", to: Route::Users {}, aria_label: "Users", title: "Users",
+                        button { class: "account-disclosure", r#type: "button",
+                            aria_label: "Account options", aria_expanded: account_open(),
+                            onclick: move |_| account_open.toggle(),
+                        }
+                        Link { class: "account-icon", to: Route::Users {}, aria_label: "Users", title: "Users",
+                            Icon { kind: "users" }
+                        }
+                    } else {
+                        button { class: "account-icon", r#type: "button",
+                            aria_label: "Account options", aria_expanded: account_open(),
+                            onclick: move |_| account_open.toggle(),
                             Icon { kind: "users" }
                         }
                     }
-                    Link { class: "header-icon-link", to: Route::Recipes {}, aria_label: "Recipes", title: "Recipes",
-                        Icon { kind: "recipes" }
-                    }
-                    form { action: "/auth/logout", method: "post",
-                        button { class: "undo-button sign-out-button", r#type: "submit", "Sign out" }
+                    form { class: "account-signout", action: "/auth/logout", method: "post",
+                        button { r#type: "submit", "Sign out" }
                     }
                 }
             }
