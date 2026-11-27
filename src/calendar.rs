@@ -252,7 +252,7 @@ pub fn Calendar(view: Option<String>, date: Option<String>, notice: Option<Strin
         _ => None,
     };
     rsx! {
-        main { id: "main", class: "dashboard calendar-page",
+        main { id: "main", class: "dashboard interior-page calendar-page", tabindex: "-1",
             document::Title { "Lavemill - Calendar" }
             div { class: "calendar-heading",
                 h1 { "Calendar" }
@@ -409,7 +409,7 @@ fn MonthGrid(
         if let Some(day) = selected_day {
             section {
                 id: "calendar-day-events",
-                class: "calendar-day-details",
+                class: "calendar-day-details surface-panel",
                 aria_labelledby: "calendar-day-title",
                 h3 { id: "calendar-day-title", "{day.label}" }
                 if day.events.is_empty() {
@@ -433,7 +433,7 @@ fn MonthGrid(
 fn WeekGrid(days: Vec<CalendarDay>, today: String) -> Element {
     rsx! {
         div {
-            class: "calendar-week-scroll",
+            class: "calendar-week-scroll surface-panel",
             role: "region",
             aria_label: "Hourly week calendar",
             tabindex: "0",
@@ -611,7 +611,7 @@ fn CalendarConnection(provider: Provider) -> Element {
     let name = provider.label();
     let key = provider.key();
     rsx! {
-        section { class: "add-task-panel calendar-settings",
+        section { class: "add-task-panel calendar-settings surface-panel",
             h2 { "{name}" }
             match status.as_ref() {
                 Some(Ok(ConnectionStatus::Connected { selected, shared, choices })) => {
