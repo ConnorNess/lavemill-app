@@ -709,8 +709,43 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .calendar-toolbar { margin: 20px 0 12px; }
 .calendar-toolbar h2 { font-size: 1.25rem; }
 .calendar-nav { display: flex; flex-wrap: wrap; gap: 6px; }
-.calendar-nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; border: 1px solid var(--field-border); border-radius: 4px; background: var(--surface); color: var(--accent-ink); text-decoration: none; }
-.calendar-nav a:hover { background: var(--accent-surface); }
+.calendar-nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; text-decoration: none; }
+.calendar-page :is(.calendar-nav a, .calendar-heading .secondary-button, .calendar-settings :is(select, button)) {
+    border: 0;
+    border-radius: 0;
+    color: var(--theme-ink);
+    background: var(--theme-active);
+    clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
+}
+.calendar-page .calendar-settings select { appearance: auto; padding-inline-end: 18px; }
+.calendar-page :is(.calendar-view-active, .calendar-heading button[aria-expanded="true"], .calendar-settings .primary-button) {
+    color: var(--theme-checkmark);
+    background: var(--theme-accent);
+    font-weight: 650;
+}
+.calendar-page :is(.calendar-nav a, .calendar-heading .secondary-button, .calendar-settings button):hover:not(:disabled) {
+    color: var(--theme-checkmark);
+    background: var(--theme-accent-hover);
+}
+.calendar-page :is(.calendar-nav a, .calendar-heading .secondary-button, .calendar-settings :is(select, button)):focus-visible {
+    outline-color: currentColor;
+    outline-offset: -6px;
+}
+@media (forced-colors: active) {
+    .calendar-page :is(.calendar-nav a, .calendar-heading .secondary-button, .calendar-settings :is(select, button)) {
+        border: 1px solid currentColor;
+        clip-path: none;
+    }
+    .calendar-page :is(.calendar-view-active, .calendar-heading button[aria-expanded="true"]) {
+        forced-color-adjust: none;
+        color: HighlightText;
+        background: Highlight;
+    }
+    .calendar-page :is(.calendar-view-active, .calendar-heading button[aria-expanded="true"]):hover:not(:disabled) {
+        color: HighlightText;
+        background: Highlight;
+    }
+}
 .calendar-connections { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 12px; }
 .calendar-week-scroll { overflow-x: auto; }
 .calendar-week-scroll:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: 2px; }
@@ -730,7 +765,6 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .calendar-timed-title { font-weight: 650; }
 .calendar-timed-time { font-size: 0.68rem; }
 .calendar-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; }
-.calendar-nav a.calendar-view-active { border-color: var(--theme-accent); background: var(--theme-accent); color: #fff; font-weight: 650; }
 .calendar-month-frame { padding: 8px; }
 .calendar-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .calendar-month-weekday { padding: 8px 3px; text-align: center; color: var(--muted); font-size: 0.8rem; font-weight: 650; }
