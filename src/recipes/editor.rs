@@ -168,9 +168,9 @@ fn contents<T>(items: &Ordered<EditorItem>, entry: impl Fn(&EntryFields) -> T) -
 pub(crate) fn NewRecipe() -> Element {
     rsx! {
         document::Title { "Lavemill · Add recipe" }
-        main { id: "main", class: "dashboard recipes-page", tabindex: "-1",
-            Link { to: Route::Recipes {}, "All recipes" }
-            h1 { "Add recipe" }
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+            Link { class: "recipe-back-link", to: Route::Recipes {}, "All recipes" }
+            header { class: "recipe-heading", h1 { "Add recipe" } }
             RecipeEditor {}
         }
     }
@@ -186,9 +186,9 @@ fn EditRecipeContent(id: i64) -> Element {
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
         document::Title { "Lavemill · Edit recipe" }
-        main { id: "main", class: "dashboard recipes-page", tabindex: "-1",
-            Link { to: Route::RecipeDetail { id }, "Back to recipe" }
-            h1 { "Edit recipe" }
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+            Link { class: "recipe-back-link", to: Route::RecipeDetail { id }, "Back to recipe" }
+            header { class: "recipe-heading", h1 { "Edit recipe" } }
             match recipe.read().as_ref() {
                 Some(Ok(Some(recipe))) => rsx! {
                     RecipeEditor { target: EditTarget { id, revision: recipe.revision }, initial: recipe.contents.clone() }
@@ -272,7 +272,10 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
             });
         },
             fieldset { disabled: pending(), class: "recipe-editor-fields",
-                label { "Title", input { required: true, value: title(), oninput: move |event| title.set(event.value()) } }
+                label { class: "recipe-title-field surface-panel",
+                    "Title"
+                    input { required: true, value: title(), oninput: move |event| title.set(event.value()) }
+                }
                 div { class: "recipe-editor-columns",
                     EditItems { items: ingredients, ingredients: true }
                     EditItems { items: steps, ingredients: false }
@@ -294,7 +297,7 @@ fn EditItems(mut items: Signal<Ordered<EditorItem>>, ingredients: bool) -> Eleme
     let draft = items.read();
     let (heading, item_name) = item_labels(ingredients);
     rsx! {
-        section { class: "recipe-editor-section",
+        section { class: "recipe-editor-section surface-panel",
             h2 { "{heading}" }
             for (index, &(key, ref item)) in draft.items.iter().enumerate() {
                 match item {
