@@ -583,7 +583,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .todo-field-icon { display: grid; place-items: center; color: var(--theme-checkmark); }
 .todos-page .todo-field :is(input, textarea, select) {
     width: 100%;
-    border: 1px solid var(--field-border);
+    border: 0;
     border-radius: 0;
     background: var(--theme-active);
     color: var(--theme-ink);
@@ -604,6 +604,36 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 }
 .todo-select-field .todo-field-icon svg { width: 18px; height: 18px; }
 .todo-select-field:has(select:disabled) .todo-field-icon { opacity: 0.6; }
+.todo-select-field option { color: var(--theme-ink); background: var(--theme-active); }
+@supports (appearance: base-select) and selector(select::picker(select)) {
+    @media (forced-colors: none) {
+        .todos-page .todo-select-field select,
+        .todo-select-field select::picker(select) { appearance: base-select; }
+        .todo-select-field select::picker-icon { display: none; }
+        .todo-select-field select::picker(select) {
+            margin-block-start: 4px;
+            padding: 4px 0;
+            border: 0;
+            border-radius: 0;
+            color: var(--theme-ink);
+            background: var(--theme-active);
+            clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
+        }
+        .todo-select-field option { min-height: 40px; padding: 8px 12px; }
+        .todo-select-field option:checked { background: var(--theme-background-middle); font-weight: 600; }
+        .todo-select-field option:is(:hover, :focus-visible) {
+            color: var(--theme-checkmark);
+            background: var(--theme-accent);
+        }
+    }
+    @media (forced-colors: none) and (prefers-reduced-motion: no-preference) {
+        .todo-select-field select:open::picker(select) { animation: todo-picker-open 160ms ease-out; }
+    }
+}
+@keyframes todo-picker-open {
+    from { opacity: 0; transform: translateY(-7px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 @media (forced-colors: active) {
     .todos-page .todo-select-field select { appearance: auto; padding-inline-end: 12px; }
     .todo-select-field .todo-field-icon { display: none; }
@@ -643,7 +673,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 input, select, button { font: inherit; }
 input:not([type="checkbox"]), select { min-width: 0; max-width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #bbc8ce; border-radius: 8px; color: var(--ink); background: var(--surface); }
 select { appearance: none; padding-right: 34px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='m1 1 5 5 5-5' fill='none' stroke='%2328556b' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }
-.task-assignee-field { flex-shrink: 0; width: 135px; }
+.task-assignee-field { flex-shrink: 0; width: 168px; }
 .task-assignee-field select { width: 100%; font-size: 0.875rem; }
 .completed-assignee { color: var(--muted); font-size: 0.875rem; overflow-wrap: anywhere; }
 button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: pointer; }
