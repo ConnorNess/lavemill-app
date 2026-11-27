@@ -620,6 +620,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .recipes-page { max-width: 1000px; overflow-wrap: anywhere; }
 .recipe-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin-bottom: 24px; }
 .recipe-heading h1 { min-width: 0; }
+.recipe-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .recipe-back-link { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: 8px; color: var(--accent-ink); text-underline-offset: 3px; }
 .recipe-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 14px; padding: 0; list-style: none; }
 .recipe-card { display: flex; align-items: center; height: 100%; min-height: 64px; padding: 14px 18px; color: var(--theme-ink); font: 700 1.125rem/1.4 var(--display-font); text-decoration: none; }
@@ -634,10 +635,13 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .recipe-text { white-space: pre-wrap; }
 .recipe-action { display: inline-flex; align-items: center; min-height: 44px; margin: 0; padding: 8px 14px; text-decoration: none; }
 .recipe-shopping-feedback p { margin: 8px 0 0; color: var(--accent-ink); font-size: 0.875rem; }
-.recipe-shopping-picker { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); padding: clamp(16px, 3vw, 24px); color: var(--ink); }
-.recipe-shopping-picker::backdrop { background: color-mix(in srgb, var(--theme-backdrop) 58%, transparent); }
-.recipe-shopping-picker h2 { margin: 0 0 12px; }
-.recipe-shopping-picker fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.recipe-shopping-picker, .recipe-delete-dialog { width: min(30rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); padding: clamp(16px, 3vw, 24px); color: var(--ink); }
+.recipe-shopping-picker::backdrop, .recipe-delete-dialog::backdrop { background: color-mix(in srgb, var(--theme-backdrop) 58%, transparent); }
+:is(.recipe-shopping-picker, .recipe-delete-dialog) h2 { margin: 0 0 12px; }
+:is(.recipe-shopping-picker, .recipe-delete-dialog) fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.recipe-delete-dialog label { display: grid; gap: 6px; }
+.recipe-delete-actions { justify-content: flex-end; margin-top: 12px; }
+.recipe-delete-actions .primary-button { margin: 0; }
 .recipe-shopping-section + .recipe-shopping-section { margin-top: 12px; }
 .recipe-shopping-section h3 { margin: 0; font-size: 1rem; }
 .recipe-shopping-section label { display: flex; align-items: center; gap: 10px; min-height: 44px; padding-block: 7px; }

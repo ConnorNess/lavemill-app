@@ -20,6 +20,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (7, include_str!("migrations/007_calendar_providers.sql")),
     (8, include_str!("migrations/008_activity_profile_links.sql")),
     (9, include_str!("migrations/009_recipes.sql")),
+    (10, include_str!("migrations/010_recipe_ids.sql")),
 ];
 
 pub fn initialize(path: &Path) -> Result<()> {
@@ -84,6 +85,24 @@ pub fn open(path: &Path) -> Result<Connection> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recipe_id_migration_preserves_and_tracks_existing_ids() {
+        let mut db = rusqlite::Connection::open_in_memory().unwrap();
+        super::migrate(&mut db, &super::MIGRATIONS[..9]).unwrap();
+        db.execute("INSERT INTO recipes (id, title) VALUES (42, 'Toast')", [])
+            .unwrap();
+        super::migrate(&mut db, super::MIGRATIONS).unwrap();
+        let (id, last_id): (i64, i64) = db
+            .query_row(
+                "SELECT recipes.id, recipe_id_sequence.last_id
+                 FROM recipes CROSS JOIN recipe_id_sequence",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((id, last_id), (42, 42));
+    }
+
     #[test]
     fn calendar_provider_migration_preserves_google_connections_and_attempts() {
         let mut db = rusqlite::Connection::open_in_memory().unwrap();

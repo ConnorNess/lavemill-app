@@ -189,13 +189,23 @@ pub(super) fn validate(
 pub(super) fn create(db: &mut Connection, contents: &RecipeContents) -> Result<SaveRecipe> {
     let tx = db.transaction()?;
     let id = tx.query_row(
-        "INSERT INTO recipes (title) VALUES (?1) RETURNING id",
+        "INSERT INTO recipes (id, title)
+         SELECT last_id + 1, ?1 FROM recipe_id_sequence WHERE singleton = 1
+         RETURNING id",
         [&contents.title],
         |row| row.get(0),
     )?;
     write_contents(&tx, id, contents)?;
     tx.commit()?;
     Ok(SaveRecipe::Saved(id))
+}
+
+pub(super) fn delete(db: &Connection, id: i64, revision: i64, title: &str) -> Result<bool> {
+    let changed = db.execute(
+        "DELETE FROM recipes WHERE id = ?1 AND revision = ?2 AND title = ?3",
+        params![id, revision, title],
+    )?;
+    Ok(changed == 1)
 }
 
 pub(super) fn update(
@@ -491,6 +501,46 @@ mod tests {
             contents.ingredients[0].entries[0].quantity.as_deref(),
             Some("a handful")
         );
+    }
+
+    #[test]
+    fn deletes_only_the_confirmed_revision_and_never_reuses_its_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recipes.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        shopping_fixture(&db);
+        db.execute_batch(
+            "INSERT INTO recipe_step_sections VALUES (1, 1, 0, NULL);
+             INSERT INTO recipe_steps VALUES (1, 0, 'Toast it', NULL);",
+        )
+        .unwrap();
+        let contents = get(&mut db, 1).unwrap().unwrap().contents;
+        update(&mut db, 1, 1, &contents).unwrap();
+
+        assert!(!delete(&db, 1, 1, "Toast").unwrap());
+        assert!(!delete(&db, 1, 2, "toast").unwrap());
+        assert!(!delete(&db, 1, 2, "Toast ").unwrap());
+        assert!(delete(&db, 1, 2, "Toast").unwrap());
+        assert!(!delete(&db, 1, 2, "Toast").unwrap());
+        assert!(list(&db).unwrap().is_empty());
+        assert!(get(&mut db, 1).unwrap().is_none());
+        let (children, shopping): (i64, i64) = db
+            .query_row(
+                "SELECT (SELECT count(*) FROM recipe_ingredient_sections)
+                      + (SELECT count(*) FROM recipe_ingredients)
+                      + (SELECT count(*) FROM recipe_step_sections)
+                      + (SELECT count(*) FROM recipe_steps),
+                        (SELECT count(*) FROM shopping_items)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((children, shopping), (0, 4));
+        assert!(matches!(
+            create(&mut db, &contents).unwrap(),
+            SaveRecipe::Saved(2)
+        ));
     }
 
     #[test]

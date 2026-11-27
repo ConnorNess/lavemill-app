@@ -123,6 +123,17 @@ async fn update_recipe(
     .await
 }
 
+#[post("/api/recipes/:id/delete")]
+async fn delete_recipe(id: i64, revision: i64, title: String) -> Result<bool, ServerFnError> {
+    crate::auth::require_member()?;
+    crate::auth::server::run_blocking(move || {
+        storage::delete(&crate::auth::server::connection()?, id, revision, &title)
+            .map_err(crate::accounts::database_error)
+    })
+    .await
+    .map_err(ServerFnError::new)
+}
+
 #[cfg(feature = "server")]
 async fn save_recipe(
     contents: RecipeContents,
@@ -186,13 +197,99 @@ fn RecipeDetailContent(id: i64) -> Element {
                     document::Title { "Lavemill · {recipe.contents.title}" }
                     header { class: "recipe-heading",
                         h1 { "{recipe.contents.title}" }
-                        Link { class: "recipe-action secondary-button", to: Route::EditRecipe { id }, "Edit recipe" }
+                        div { class: "recipe-detail-actions",
+                            Link { class: "recipe-action secondary-button", to: Route::EditRecipe { id }, "Edit recipe" }
+                            DeleteRecipe { id, revision: recipe.revision, title: recipe.contents.title.clone() }
+                        }
                     }
                     RecipeMethod { id, revision: recipe.revision, contents: recipe.contents.clone() }
                 },
                 Some(Ok(None)) => rsx! { h1 { "Recipe not found" } },
                 Some(Err(_)) => rsx! { p { role: "alert", "Could not load this recipe. Reload to try again." } },
                 None => rsx! { p { "Loading recipe…" } },
+            }
+        }
+    }
+}
+
+#[component]
+fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
+    let navigator = use_navigator();
+    let mut confirmation = use_signal(String::new);
+    let mut pending = use_signal(|| false);
+    let mut stale = use_signal(|| false);
+    let mut error = use_signal(|| "");
+    let matches_title = *confirmation.read() == title;
+
+    rsx! {
+        button {
+            r#type: "button",
+            class: "recipe-action secondary-button",
+            onclick: move |_| {
+                confirmation.set(String::new());
+                if !stale() {
+                    error.set("");
+                }
+                let _ = document::eval(r#"
+                    const dialog = document.getElementById("recipe-delete-dialog");
+                    dialog.oncancel = (event) => {
+                        if (dialog.querySelector("fieldset").disabled) event.preventDefault();
+                    };
+                    dialog.showModal();
+                "#);
+            },
+            "Delete recipe"
+        }
+        dialog { id: "recipe-delete-dialog", class: "recipe-delete-dialog surface-panel",
+            aria_labelledby: "recipe-delete-title",
+            h2 { id: "recipe-delete-title", "Delete recipe?" }
+            p { "This permanently deletes the recipe, including its ingredients and steps." }
+            form {
+                onsubmit: move |event| {
+                    event.prevent_default();
+                    if !matches_title || pending() || stale() {
+                        return;
+                    }
+                    let typed_title = confirmation();
+                    pending.set(true);
+                    error.set("");
+                    spawn(async move {
+                        match delete_recipe(id, revision, typed_title).await {
+                            Ok(true) => { navigator.replace(Route::Recipes {}); }
+                            Ok(false) => {
+                                stale.set(true);
+                                error.set("This recipe changed or is unavailable. Reload the page to continue.");
+                            }
+                            Err(_) => error.set("Could not delete the recipe. Try again."),
+                        }
+                        pending.set(false);
+                    });
+                },
+                fieldset { disabled: pending(),
+                    label {
+                        "Type “{title}” to confirm"
+                        input {
+                            r#type: "text", autocomplete: "off", spellcheck: false,
+                            value: "{confirmation}", disabled: stale(),
+                            oninput: move |event| confirmation.set(event.value()),
+                        }
+                    }
+                    if !error().is_empty() {
+                        p { class: "form-error", role: "alert", "{error}" }
+                    }
+                    div { class: "recipe-detail-actions recipe-delete-actions",
+                        button {
+                            r#type: "button", class: "secondary-button",
+                            onclick: move |_| { let _ = document::eval(r#"document.getElementById("recipe-delete-dialog").close();"#); },
+                            "Cancel"
+                        }
+                        if matches_title && !stale() {
+                            button { r#type: "submit", class: "primary-button",
+                                if pending() { "Deleting…" } else { "Delete recipe" }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
