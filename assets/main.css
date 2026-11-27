@@ -137,10 +137,9 @@ svg { display: block; flex-shrink: 0; }
 }
 .interior-page h2 { color: var(--mint-ink); }
 :is(.surface-panel, .dashboard-card, .header-tile, .login-brand), .account-menu::before {
-    border: 1px solid transparent;
+    border: 0;
     border-radius: 0;
-    background: linear-gradient(225deg, transparent var(--panel-corner), var(--panel-fill) var(--panel-corner)) padding-box,
-        linear-gradient(225deg, transparent calc(var(--panel-corner) + 1px), var(--panel-edge) calc(var(--panel-corner) + 1px)) border-box;
+    background: linear-gradient(225deg, transparent var(--panel-corner), var(--panel-fill) var(--panel-corner));
 }
 :is(.surface-panel, .dashboard-card) {
     min-width: 0;
@@ -148,7 +147,7 @@ svg { display: block; flex-shrink: 0; }
 }
 .surface-panel:focus-visible { border-radius: 0; }
 @media (forced-colors: active) {
-    :is(.surface-panel, .dashboard-card, .header-tile, .login-brand), .account-menu::before { border-color: CanvasText; }
+    :is(.surface-panel, .dashboard-card, .header-tile, .login-brand), .account-menu::before { background: Canvas; }
 }
 .interior-page :is(input:not([type="checkbox"]), select, textarea) { border-color: var(--field-border); border-radius: 4px; }
 .interior-page :is(.primary-button, .secondary-button, .undo-button) { border-radius: 4px; }
@@ -267,9 +266,7 @@ svg { display: block; flex-shrink: 0; }
 }
 .homelab-shortcuts { --shortcut-size: var(--home-rail-width); --shortcut-corner: 10px; z-index: 2; grid-column: 3; align-self: end; justify-self: end; width: var(--home-shortcuts-width); margin-inline-end: var(--home-rail-inset); pointer-events: none; }
 .homelab-shortcut-rail { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; inline-size: var(--shortcut-size); margin-inline-start: auto; pointer-events: auto; }
-.homelab-shortcut-rail::before, .homelab-shortcut-rail::after { content: ""; position: absolute; z-index: -1; pointer-events: none; clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
-.homelab-shortcut-rail::before { inset: 0; background: var(--panel-edge); }
-.homelab-shortcut-rail::after { --shortcut-corner: 9.4px; inset: 1px; background: var(--panel-fill); }
+.homelab-shortcut-rail::before { content: ""; position: absolute; z-index: -1; inset: 0; pointer-events: none; background: var(--panel-fill); clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
 .homelab-shortcut { --shortcut-width: var(--shortcut-size); position: relative; display: inline-flex; flex: 0 0 auto; flex-direction: row-reverse; align-items: center; gap: 10px; inline-size: var(--shortcut-width); min-block-size: var(--shortcut-size); overflow: hidden; padding: 5px; border: 1px solid transparent; border-radius: 0; color: #1e5948; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: inline-size 180ms ease, margin 180ms ease, background-color 160ms ease, color 160ms ease; }
 .homelab-shortcut:first-child { clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }
 .homelab-shortcut:is(:hover, :focus-visible) { --shortcut-width: var(--home-shortcuts-width); z-index: 1; background: #135b43; color: #fff; }
@@ -430,7 +427,7 @@ button { min-height: 44px; padding: 10px 16px; border-radius: 8px; cursor: point
 .calendar-toolbar-actions { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .calendar-nav a.calendar-view-active { border-color: var(--mint-focus); background: var(--mint-focus); color: #fff; font-weight: 650; }
 .calendar-month-frame { padding: 8px; }
-.calendar-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); background: var(--line); }
+.calendar-month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: var(--line); }
 .calendar-month-weekday { padding: 8px 3px; text-align: center; background: var(--panel-fill); color: var(--muted); font-size: 0.8rem; font-weight: 650; }
 .calendar-month-day { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 6px; min-width: 0; min-height: 6rem; border: 0; border-radius: 0; background: var(--panel-fill); color: inherit; text-align: left; cursor: pointer; font: inherit; }
 .calendar-month-day:hover, .calendar-month-day[aria-pressed="true"] { background: var(--blue); color: var(--blue-ink); }
