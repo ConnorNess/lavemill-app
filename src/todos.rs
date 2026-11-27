@@ -11,6 +11,7 @@ pub(crate) struct Task {
     pub reporter: String,
     pub assignee_id: Option<i64>,
     pub assignee: Option<String>,
+    pub assignee_first_name: Option<String>,
     pub status: String,
     pub can_reopen: bool,
 }
@@ -256,7 +257,7 @@ fn TaskPreviewRow(
                     else { "Due {task.due}" }
                 }
             }
-            span { class: "assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
+            span { class: "task-preview-assignee", {task.assignee_first_name.as_deref().unwrap_or("Unassigned")} }
         }
     }
 }

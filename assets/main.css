@@ -538,7 +538,17 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .row-note { margin-top: 5px; font-size: 0.875rem; color: var(--muted); }
 .overdue { color: #9a5439; }
 .is-done .row-title { color: var(--muted); text-decoration: line-through; text-decoration-color: #a3aeb1; }
-.assignee { flex-shrink: 0; margin-top: 2px; padding: 2px 8px; border: 1px solid #e5e9e7; border-radius: 6px; font-size: 0.75rem; color: #59696b; background: #f6f8f7; }
+.task-preview-assignee {
+    align-self: center;
+    flex-shrink: 0;
+    max-inline-size: 40%;
+    padding: 2px 9px;
+    overflow-wrap: anywhere;
+    font-size: 0.75rem;
+    color: var(--theme-ink);
+    background: var(--theme-active);
+    clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
+}
 .shopping-list .list-row { padding-block: 14px; }
 .list-divider { display: flex; align-items: center; gap: 10px; margin: 13px 0 1px; color: var(--muted); font-size: 0.75rem; font-weight: 500; }
 .list-divider::after { content: ""; height: 1px; flex: 1; background: var(--line); }

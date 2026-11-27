@@ -24,7 +24,7 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
         .prepare(
             "SELECT t.id, t.title, t.description, t.due, t.assignee_id,
                 reporter.first_name || ' ' || reporter.last_name,
-                assignee.first_name || ' ' || assignee.last_name, t.status,
+                assignee.first_name || ' ' || assignee.last_name, assignee.first_name, t.status,
                 t.status = 'completed' AND (t.next_due IS NULL OR t.next_due > ?1)
          FROM todos t
          JOIN users reporter ON reporter.id = t.reporter_id
@@ -42,8 +42,9 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
                 assignee_id: row.get(4)?,
                 reporter: row.get(5)?,
                 assignee: row.get(6)?,
-                status: row.get(7)?,
-                can_reopen: row.get(8)?,
+                assignee_first_name: row.get(7)?,
+                status: row.get(8)?,
+                can_reopen: row.get(9)?,
             })
         })
         .map_err(database_error)?
@@ -338,7 +339,7 @@ mod tests {
         db.execute_batch(
             "INSERT INTO schema_migrations VALUES (1);
              INSERT INTO users VALUES (1, 'alex', 'Alex', 'One', 'test', 0),
-                                      (2, 'sam', 'Sam', 'Two', 'test', 0);",
+                                      (2, 'sam', 'Sam Lee', 'Two', 'test', 0);",
         )
         .unwrap();
         crate::database::initialize(&path).unwrap();
@@ -369,6 +370,11 @@ mod tests {
         let tasks = list(&mut db, today).unwrap();
         assert_eq!(tasks.tasks[0].reporter, "Alex One");
         assert_eq!(tasks.tasks[0].assignee_id, Some(2));
+        assert_eq!(
+            tasks.tasks[0].assignee_first_name.as_deref(),
+            Some("Sam Lee")
+        );
+        assert_eq!(tasks.tasks[0].assignee.as_deref(), Some("Sam Lee Two"));
         assert_eq!(tasks.tasks[0].description.as_deref(), Some("Bring gloves"));
         apply(&mut db, today, 2, Change::Reopen { id: 1 }).unwrap();
         let task = &list(&mut db, today).unwrap().tasks[0];
