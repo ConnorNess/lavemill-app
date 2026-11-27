@@ -107,7 +107,6 @@ fn App() -> Element {
 #[component]
 fn HouseholdLayout() -> Element {
     use_context_provider(|| Signal::new(None::<shopping::RemovedItem>));
-    let route = use_route::<Route>();
     let viewer = use_server_future(auth::current_viewer)?;
     let viewer = viewer.read();
     let is_admin = match viewer.as_ref() {
@@ -128,18 +127,18 @@ fn HouseholdLayout() -> Element {
                     span { class: "brand-mark", Icon { kind: "home" } }
                     span { "lavemill" }
                 }
-                nav { class: "main-nav", aria_label: "Main navigation",
-                    Link { to: Route::Home {}, class: if route == (Route::Home {}) { "nav-link active" } else { "nav-link" }, "Home" }
-                    Link { to: Route::Todos {}, class: if route == (Route::Todos {}) { "nav-link active" } else { "nav-link" }, "To-dos" }
-                    Link { to: Route::Shopping {}, class: if route == (Route::Shopping {}) { "nav-link active" } else { "nav-link" }, "Shopping" }
-                    Link { to: Route::Recipes {}, class: if matches!(route, Route::Recipes {} | Route::NewRecipe {} | Route::RecipeDetail { .. } | Route::EditRecipe { .. }) { "nav-link active" } else { "nav-link" }, "Recipes" }
-                    Link { to: Route::Calendar { view: None, date: None, notice: None }, class: if matches!(route, Route::Calendar { .. }) { "nav-link active" } else { "nav-link" }, "Calendar" }
+                div { class: "header-actions",
                     if is_admin {
-                        Link { to: Route::Users {}, class: if route == (Route::Users {}) { "nav-link active" } else { "nav-link" }, "Users" }
+                        Link { class: "header-icon-link", to: Route::Users {}, aria_label: "Users", title: "Users",
+                            Icon { kind: "users" }
+                        }
                     }
-                }
-                form { action: "/auth/logout", method: "post",
-                    button { class: "undo-button", r#type: "submit", "Sign out" }
+                    Link { class: "header-icon-link", to: Route::Recipes {}, aria_label: "Recipes", title: "Recipes",
+                        Icon { kind: "recipes" }
+                    }
+                    form { action: "/auth/logout", method: "post",
+                        button { class: "undo-button sign-out-button", r#type: "submit", "Sign out" }
+                    }
                 }
             }
         }
@@ -191,6 +190,8 @@ fn Icon(kind: &'static str) -> Element {
         "calendar" => {
             "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2M7 14h2M13 14h2M7 18h2"
         }
+        "users" => "M20 21a8 8 0 0 0-16 0M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+        "recipes" => "M12 7c-3-2-6-2-9-1v13c3-1 6-1 9 1 3-2 6-2 9-1V6c-3-1-6-1-9 1Zm0 0v13",
         "Seerr" => {
             "M21 12s-3.5 6-9 6-9-6-9-6 3.5-6 9-6 9 6 9 6ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
         }

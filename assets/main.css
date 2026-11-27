@@ -98,7 +98,12 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
 .agenda-marker { width: 3px; flex-shrink: 0; border-radius: 4px; background: #acd4e9; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
-.main-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.header-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.header-icon-link { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid rgb(34 92 75 / 30%); border-radius: 12px; color: #1e5948; text-decoration: none; transition: background-color 160ms ease, border-color 160ms ease; }
+.header-icon-link svg { width: 22px; height: 22px; }
+.header-icon-link:hover { border-color: #1e5948; background: rgb(223 246 237 / 76%); }
+.sign-out-button { border-color: rgb(34 92 75 / 30%); color: #1e5948; }
+.sign-out-button:hover { background: rgb(223 246 237 / 76%); }
 .nav-link { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 14px; border-radius: 10px; font-size: 0.875rem; text-decoration: none; }
 .nav-link:hover { background: #eef6fa; }
 .nav-link.active { background: var(--blue); color: var(--blue-ink); font-weight: 600; }
