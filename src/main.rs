@@ -115,6 +115,22 @@ fn HouseholdLayout() -> Element {
     let theme = theme::use_household_theme();
     let mut account_open = use_signal(|| false);
     let viewer = use_server_future(auth::current_viewer)?;
+    use_context_provider(|| viewer);
+    let route = use_route::<Route>();
+    let blocked = matches!(viewer.read().as_ref(), Some(Ok(Some(auth::Viewer::Guest))))
+        && matches!(
+            route,
+            Route::Calendar { .. }
+                | Route::Users {}
+                | Route::NewRecipe {}
+                | Route::EditRecipe { .. }
+        );
+    let navigator = use_navigator();
+    use_effect(use_reactive!(|blocked| {
+        if blocked {
+            navigator.replace(Route::Home {});
+        }
+    }));
     let viewer = viewer.read();
     let is_admin = match viewer.as_ref() {
         Some(Ok(Some(viewer))) => viewer.is_admin(),
@@ -157,12 +173,15 @@ fn HouseholdLayout() -> Element {
                 }
             }
         }
-        Outlet::<Route> {}
+        if !blocked {
+            Outlet::<Route> {}
+        }
     }
 }
 
 #[component]
 fn Home() -> Element {
+    let guest = auth::use_is_guest();
     rsx! {
         main { id: "main", class: "dashboard home-dashboard", tabindex: "-1",
             document::Title { "Lavemill · Home" }
@@ -173,10 +192,16 @@ fn Home() -> Element {
                     div { class: "dashboard-grid",
                         TasksCard {}
                         ShoppingCard {}
-                        CalendarCard {}
+                        if guest {
+                            calendar::CalendarNoAccess {}
+                        } else {
+                            CalendarCard {}
+                        }
                     }
                 }
-                homelab::Shortcuts {}
+                if !guest {
+                    homelab::Shortcuts {}
+                }
             }
         }
     }
@@ -195,7 +220,9 @@ fn CardHeading(
             div { class: "card-heading-copy",
                 h2 { id, "{title}" }
             }
-            span { class: "count-badge", "{count}" }
+            if !count.is_empty() {
+                span { class: "count-badge", "{count}" }
+            }
         }
     }
 }

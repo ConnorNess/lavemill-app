@@ -161,6 +161,20 @@ fn calendar_context() -> Result<
 }
 
 #[component]
+pub fn CalendarNoAccess() -> Element {
+    rsx! {
+        section { class: "dashboard-card calendar-no-access", aria_labelledby: "calendar-title",
+            CardHeading {
+                icon: "calendar", title: "Shared Calendar", id: "calendar-title", count: String::new(),
+            }
+            div { class: "card-body",
+                span { class: "activity-empty", "NO ACCESS" }
+            }
+        }
+    }
+}
+
+#[component]
 pub fn CalendarCard() -> Element {
     let agenda = use_server_future(shared_agenda)?;
     let agenda = agenda.read();

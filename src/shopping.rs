@@ -108,10 +108,13 @@ pub(super) fn ShoppingCard() -> Element {
 
 #[component]
 fn PreviewRow(item: ShoppingItem) -> Element {
+    let guest = crate::auth::use_is_guest();
     let error = use_signal(String::new);
     rsx! {
         li { class: if item.checked { "list-row is-done" } else { "list-row" },
-            ShoppingCheckbox { item: item.clone(), error }
+            if !guest {
+                ShoppingCheckbox { item: item.clone(), error }
+            }
             div { class: "row-copy",
                 span { class: "row-title", "{item.name}" }
                 if let Some(quantity) = item.quantity { span { class: "row-note", "{quantity}" } }
@@ -123,6 +126,7 @@ fn PreviewRow(item: ShoppingItem) -> Element {
 
 #[component]
 pub(super) fn Shopping() -> Element {
+    let guest = crate::auth::use_is_guest();
     let initial = use_server_future(list_shopping)?;
     let editing = use_signal(|| None::<i64>);
     let actions = use_shopping_actions();
@@ -155,8 +159,10 @@ pub(super) fn Shopping() -> Element {
                 }
             }
             if let Some(items) = items {
-                QuickAdd {}
-                RemovedNotice {}
+                if !guest {
+                    QuickAdd {}
+                    RemovedNotice {}
+                }
                 div { class: "shopping-groups",
                     ShoppingGroup { checked: false, items: items.iter().filter(|item| !item.checked).cloned().collect(), editing }
                     ShoppingGroup { checked: true, items: items.iter().filter(|item| item.checked).cloned().collect(), editing }
@@ -170,6 +176,7 @@ pub(super) fn Shopping() -> Element {
 
 #[component]
 fn ShoppingGroup(checked: bool, items: Vec<ShoppingItem>, editing: Signal<Option<i64>>) -> Element {
+    let guest = crate::auth::use_is_guest();
     let title = if checked { "Picked up" } else { "To get" };
     rsx! {
         section { class: "shopping-group surface-panel", aria_label: title,
@@ -181,7 +188,13 @@ fn ShoppingGroup(checked: bool, items: Vec<ShoppingItem>, editing: Signal<Option
                 p { class: "shopping-empty", if checked { "No items picked up." } else { "Nothing to pick up." } }
             } else {
                 ul { class: "item-list shopping-page-list",
-                    for item in items { ShoppingItemRow { key: "{item.id}", item, editing } }
+                    for item in items {
+                        if guest {
+                            PreviewRow { key: "{item.id}", item }
+                        } else {
+                            ShoppingItemRow { key: "{item.id}", item, editing }
+                        }
+                    }
                 }
             }
         }

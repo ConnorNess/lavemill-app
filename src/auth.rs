@@ -25,6 +25,12 @@ pub async fn current_viewer() -> Result<Option<Viewer>, ServerFnError> {
     Ok(request_viewer())
 }
 
+pub(crate) fn use_is_guest() -> bool {
+    let viewer = use_context::<Resource<Result<Option<Viewer>, ServerFnError>>>();
+    let is_guest = matches!(viewer.read().as_ref(), Some(Ok(Some(Viewer::Guest))));
+    is_guest
+}
+
 #[cfg(feature = "server")]
 pub(crate) fn request_viewer() -> Option<Viewer> {
     dioxus::fullstack::FullstackContext::current().and_then(|context| context.extension())

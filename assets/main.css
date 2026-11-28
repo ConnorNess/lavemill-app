@@ -312,7 +312,7 @@ svg { display: block; flex-shrink: 0; }
     box-shadow: inset 4px 0 0 transparent, var(--panel-shadow);
     transition: box-shadow 160ms ease;
 }
-.home-dashboard .dashboard-card:is(:hover, :focus-visible, :has(.card-hit-area:focus-visible)) {
+.home-dashboard .dashboard-card:not(.calendar-no-access):is(:hover, :focus-visible, :has(.card-hit-area:focus-visible)) {
     box-shadow: inset 10px 0 0 var(--theme-card-highlight), 0 10px 26px color-mix(in srgb, var(--theme-shadow) 14%, transparent);
 }
 .home-dashboard .dashboard-list-card:focus-visible { outline: 3px solid var(--accent-ink); outline-offset: 2px; }
@@ -522,6 +522,7 @@ h2 { margin: 0; font-size: 1.0625rem; font-weight: 650; letter-spacing: -0.025em
     line-height: 1.15;
     letter-spacing: 0.42em;
 }
+.calendar-no-access .card-body { display: grid; place-items: center; }
 .activity-list, .activity-stream { list-style: none; margin: 0; padding: 0; }
 .activity-list { border-block: 1px solid var(--line); }
 @media (min-width: 900px) and (min-height: 320px) {
@@ -612,6 +613,7 @@ body:has(.todos-page) { min-height: 0; }
 .todos-heading { margin-bottom: 26px; }
 .mock-note { margin: 8px 0 0; font-size: 0.875rem; color: var(--muted); }
 .todos-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: minmax(0, 1fr); gap: 28px; }
+.todos-layout.guest-list { grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
 .todos-layout > :is(.task-groups, .add-task-panel) {
     min-width: 0;
     min-height: 0;

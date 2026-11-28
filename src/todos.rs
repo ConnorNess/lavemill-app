@@ -279,6 +279,7 @@ fn TaskPreviewRow(
     failed_checkbox: (Option<i64>, usize),
     on_toggle: EventHandler<(i64, bool)>,
 ) -> Element {
+    let guest = crate::auth::use_is_guest();
     let id = task.id;
     let completed = task.status == "completed";
     let (failed_id, revision) = failed_checkbox;
@@ -286,7 +287,7 @@ fn TaskPreviewRow(
     rsx! {
         li { class: if completed { "list-row is-done" } else { "list-row" },
             "data-task-transition-id": "{id}",
-            if task.status == "open" || completed {
+            if !guest && (task.status == "open" || completed) {
                 label { class: "task-check-target",
                     // A keyed child lets a rejected change replace the browser's toggled input.
                     for revision in [revision] {
@@ -315,6 +316,7 @@ fn TaskPreviewRow(
 
 #[component]
 pub(super) fn Todos() -> Element {
+    let guest = crate::auth::use_is_guest();
     let data = use_server_future(list_tasks)?;
     use_context_provider(|| data);
     let result = data.read();
@@ -324,7 +326,7 @@ pub(super) fn Todos() -> Element {
             div { class: "todos-heading", h1 { "To-dos" } }
             match result.as_ref() {
                 Some(Ok(data)) => rsx! {
-                    div { class: "todos-layout",
+                    div { class: if guest { "todos-layout guest-list" } else { "todos-layout" },
                         div { class: "task-groups", role: "region", aria_label: "Task list", tabindex: "0",
                             for group in [Group::Overdue, Group::Today, Group::Upcoming, Group::Completed, Group::Failed] {
                                 TaskGroup {
@@ -335,7 +337,9 @@ pub(super) fn Todos() -> Element {
                                 }
                             }
                         }
-                        AddTaskForm { today: data.today.clone(), members: data.members.clone() }
+                        if !guest {
+                            AddTaskForm { today: data.today.clone(), members: data.members.clone() }
+                        }
                     }
                 },
                 Some(Err(_)) => rsx! { p { role: "alert", "Could not load tasks. Reload to try again." } },
@@ -347,6 +351,7 @@ pub(super) fn Todos() -> Element {
 
 #[component]
 fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
+    let guest = crate::auth::use_is_guest();
     rsx! {
         section { class: "task-group surface-panel", aria_label: group.title(),
             div { class: "task-group-heading",
@@ -357,9 +362,36 @@ fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
                 p { class: "empty-tasks", "No {group.title().to_lowercase()} tasks." }
             } else {
                 ul { class: "item-list",
-                    for task in tasks { EditableTaskRow { key: "{task.id}", task, members: members.clone() } }
+                    for task in tasks {
+                        if guest {
+                            ReadOnlyTaskRow { key: "{task.id}", task }
+                        } else {
+                            EditableTaskRow { key: "{task.id}", task, members: members.clone() }
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn ReadOnlyTaskRow(task: Task) -> Element {
+    rsx! {
+        li { class: if task.status == "completed" { "list-row is-done" } else { "list-row" },
+            "data-task-transition-id": "{task.id}",
+            div { class: "row-copy",
+                span { class: "row-title", "{task.title}" }
+                if let Some(description) = &task.description {
+                    p { class: "task-description", "{description}" }
+                }
+                time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
+                span { class: "row-note", "Reported by {task.reporter}" }
+                if let Some(recurrence) = task.recurrence.as_ref().filter(|_| task.status == "open") {
+                    span { class: "row-note", "Repeats {recurrence.frequency.label().to_lowercase()}" }
+                }
+            }
+            span { class: "completed-assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
         }
     }
 }
