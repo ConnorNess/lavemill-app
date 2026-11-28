@@ -27,22 +27,24 @@ pub(crate) fn HomeCard(
                 }
             },
             onfocusin: move |_| preview(),
-            Link {
-                class: "card-hit-area",
-                to,
-                aria_label: label,
-                "data-card-page": page,
-                onclick_only: true,
-                onclick: move |_| {
-                    let destination = destination.clone();
-                    spawn(async move {
-                        if begin_transition(page, false, None).await {
-                            navigator.push(destination);
-                        }
-                    });
-                },
+            div { class: "home-card-content",
+                Link {
+                    class: "card-hit-area",
+                    to,
+                    aria_label: label,
+                    "data-card-page": page,
+                    onclick_only: true,
+                    onclick: move |_| {
+                        let destination = destination.clone();
+                        spawn(async move {
+                            if begin_transition(page, false, None).await {
+                                navigator.push(destination);
+                            }
+                        });
+                    },
+                }
+                {children}
             }
-            {children}
         }
     }
 }
