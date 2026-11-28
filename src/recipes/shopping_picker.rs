@@ -1,7 +1,7 @@
 use super::{
     add_recipe_ingredients, AddRecipeIngredients, Ingredient, IngredientPosition, Section,
 };
-use crate::Route;
+use crate::{card_navigation::NavigationLink, Route};
 use dioxus::prelude::*;
 use std::collections::BTreeSet;
 
@@ -53,7 +53,7 @@ pub(super) fn ShoppingPicker(
             }
         }
         if feedback().is_some() {
-            Link { to: Route::Shopping {}, "View shopping list" }
+            NavigationLink { to: Route::Shopping {}, anchor: true, "View shopping list" }
         }
         dialog { id: "recipe-shopping-picker", class: "recipe-shopping-picker surface-panel",
             aria_labelledby: "recipe-shopping-picker-title",

@@ -181,7 +181,7 @@ pub fn CalendarCard() -> Element {
     rsx! {
         crate::card_navigation::HomeCard {
             to: Route::Calendar { view: None, date: None, notice: None },
-            label: "Open shared calendar", page: "calendar", heading: "calendar-title",
+            label: "Open shared calendar", heading: "calendar-title",
             CardHeading {
                 icon: "calendar",
                 title: "Shared Calendar",
@@ -196,7 +196,7 @@ pub fn CalendarCard() -> Element {
                         }
                         if !agenda.has_shared_calendars {
                             p { "Your household hasn’t shared a calendar yet." }
-                            Link {
+                            crate::card_navigation::NavigationLink {
                                 to: Route::Calendar {
                                     view: None,
                                     date: None,
@@ -270,7 +270,7 @@ pub fn Calendar(view: Option<String>, date: Option<String>, notice: Option<Strin
         _ => None,
     };
     rsx! {
-        main { id: "main", class: "dashboard interior-page calendar-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page calendar-page", tabindex: "-1", "data-navigation-page": "/calendar",
             document::Title { "Lavemill - Calendar" }
             div { class: "calendar-heading",
                 h1 { "Calendar" }

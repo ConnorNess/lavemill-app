@@ -243,7 +243,7 @@ pub(super) fn TasksCard() -> Element {
     });
     rsx! {
         crate::card_navigation::HomeCard {
-            to: Route::Todos {}, label: "Open to-dos", page: "todos", heading: "tasks-title", scrollable: true,
+            to: Route::Todos {}, label: "Open to-dos", heading: "tasks-title", scrollable: true,
             CardHeading { icon: "tasks", title: "To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
                 if refresh_failed() {
@@ -321,7 +321,7 @@ pub(super) fn Todos() -> Element {
     let result = data.read();
     rsx! {
         document::Title { "Lavemill · To-dos" }
-        main { id: "main", class: "dashboard interior-page todos-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page todos-page", tabindex: "-1", "data-navigation-page": "/todos",
             div { class: "todos-heading", h1 { "To-dos" } }
             match result.as_ref() {
                 Some(Ok(data)) => rsx! {

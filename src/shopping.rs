@@ -68,7 +68,7 @@ pub(super) fn ShoppingCard() -> Element {
         .or_else(|| initial.as_ref()?.as_ref().ok());
     rsx! {
         crate::card_navigation::HomeCard {
-            to: Route::Shopping {}, label: "Open shopping list", page: "shopping", heading: "shopping-title", scrollable: true,
+            to: Route::Shopping {}, label: "Open shopping list", heading: "shopping-title", scrollable: true,
             CardHeading { icon: "shopping", title: "Shopping List", id: "shopping-title",
                 count: match items {
                     Some(items) => format!("{} to get", items.iter().filter(|item| !item.checked).count()),
@@ -140,7 +140,7 @@ pub(super) fn Shopping() -> Element {
     let load_failed = items.is_none() && matches!(initial.as_ref(), Some(Err(_)));
     rsx! {
         document::Title { "Lavemill · Shopping List" }
-        main { id: "main", class: "dashboard interior-page shopping-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page shopping-page", tabindex: "-1", "data-navigation-page": "/shopping",
             div { class: "shopping-heading",
                 h1 { "Shopping List" }
             }

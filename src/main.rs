@@ -66,6 +66,7 @@ enum Route {
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const FONT_ASSETS: Asset = asset!("/assets/fonts", AssetOptions::folder());
+const CARD_NAVIGATION: Asset = asset!("/assets/card-navigation.js");
 
 fn main() {
     #[cfg(feature = "server")]
@@ -105,6 +106,7 @@ fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: "{FONT_ASSETS}/fonts.css" }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Script { src: CARD_NAVIGATION, defer: true }
         Router::<Route> {}
     }
 }
@@ -183,7 +185,7 @@ fn HouseholdLayout() -> Element {
 fn Home() -> Element {
     let guest = auth::use_is_guest();
     rsx! {
-        main { id: "main", class: "dashboard home-dashboard", tabindex: "-1",
+        main { id: "main", class: "dashboard home-dashboard", tabindex: "-1", "data-navigation-page": "/",
             document::Title { "Lavemill · Home" }
             h1 { class: "sr-only", "Home" }
             div { class: "home-dashboard-layout",

@@ -372,47 +372,25 @@ svg { display: block; flex-shrink: 0; }
 .home-dashboard .card-page-link { display: none; }
 
 :root.home-card-transition { view-transition-name: none; }
-.home-card-transition .home-dashboard { view-transition-name: home-card-outgoing; }
-.home-card-transition .interior-page { view-transition-name: home-card-incoming; }
-.home-card-transition .interior-page.home-card-source { view-transition-name: home-card-outgoing; }
-:root.home-card-transition::view-transition-group(*) {
-    z-index: 2;
-    animation-duration: 400ms;
-    animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1);
-}
-:root.home-card-transition::view-transition-group(home-card-outgoing) { z-index: 0; }
-:root.home-card-transition::view-transition-group(home-card-incoming) { z-index: 1; }
-::view-transition-old(home-card-outgoing) {
-    animation: 360ms ease-out both home-card-fade;
-}
-::view-transition-new(home-card-incoming) {
-    animation: 360ms cubic-bezier(0.2, 0.7, 0.3, 1) both home-card-reveal;
-}
-:root.home-card-return::view-transition-new(home-card-outgoing) {
-    animation: 360ms ease-out reverse both home-card-fade;
-}
-:root.home-card-return::view-transition-old(home-card-incoming) {
-    animation: 360ms cubic-bezier(0.2, 0.7, 0.3, 1) reverse both home-card-reveal;
-}
-@keyframes home-card-fade { to { opacity: 0; } }
-@keyframes home-card-reveal {
-    from { clip-path: circle(0 at var(--card-reveal-x) var(--card-reveal-y)); }
-    to { clip-path: circle(var(--card-reveal-radius) at var(--card-reveal-x) var(--card-reveal-y)); }
-}
-
-:root.home-card-deck::view-transition-old(home-card-outgoing) {
+:root.home-card-transition::view-transition-group(navigation-scene) { animation: none; }
+::view-transition-old(navigation-scene) { animation: 210ms ease-out both navigation-scene-exit; }
+::view-transition-new(navigation-scene) { animation: 210ms 310ms ease-in reverse both navigation-scene-exit; }
+:root.home-card-deck::view-transition-old(navigation-scene) {
     animation: 180ms ease-out both home-card-fade;
 }
-:root.home-card-deck.home-card-return::view-transition-new(home-card-outgoing) {
+:root.home-card-deck::view-transition-new(navigation-scene) {
     animation: 180ms 340ms ease-in reverse both home-card-fade;
 }
+@keyframes home-card-fade { to { opacity: 0; } }
+@keyframes navigation-scene-exit { to { opacity: 0; translate: 0 40px; } }
+
 :root.home-card-transition::view-transition-group(navigation-panel) {
     z-index: 3;
     animation-duration: 440ms;
     animation-delay: 80ms;
     animation-timing-function: cubic-bezier(0.24, 0.65, 0.28, 1);
 }
-:root.home-card-deck.home-card-return::view-transition-group(navigation-panel) {
+:root.home-card-return::view-transition-group(navigation-panel) {
     animation-delay: 0ms;
 }
 ::view-transition-image-pair(navigation-panel) {
@@ -439,7 +417,7 @@ svg { display: block; flex-shrink: 0; }
 :root.home-card-deck::view-transition-group(dashboard-card-before),
 :root.home-card-deck::view-transition-group(dashboard-card-before-delayed),
 :root.home-card-deck::view-transition-group(dashboard-card-after),
-:root.home-card-deck::view-transition-group(dashboard-card-after-delayed) { animation: none; }
+:root.home-card-deck::view-transition-group(dashboard-card-after-delayed) { z-index: 2; animation: none; }
 ::view-transition-group(dashboard-card-before), ::view-transition-group(dashboard-card-before-delayed) {
     --card-slide-direction: -1;
 }
