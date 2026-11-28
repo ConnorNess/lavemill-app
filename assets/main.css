@@ -442,15 +442,14 @@ svg { display: block; flex-shrink: 0; }
 .login-page .primary-button:focus-visible { outline-color: currentColor; outline-offset: -6px; }
 .users-page { max-width: 1050px; }
 .users-page h1 { margin-bottom: 24px; }
-.users-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 24px; align-items: start; }
 .user-list { display: grid; gap: 20px; }
-.user-selector { display: grid; gap: 6px; }
+.users-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.users-toolbar .primary-button { margin: 0; }
+.user-selector { display: grid; flex: 1 1 14rem; max-width: 28rem; min-width: 0; gap: 6px; }
+.users-cancel-add { margin-block-start: 12px; }
 .reset-form { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
 .reset-form button { justify-self: start; }
 .reset-form :is(p, label) { overflow-wrap: anywhere; }
-@media (max-width: 680px) {
-    .users-grid { grid-template-columns: minmax(0, 1fr); }
-}
 .homelab-shortcuts { --shortcut-size: var(--home-rail-width); --shortcut-corner: 10px; z-index: 2; grid-column: 3; align-self: end; justify-self: end; width: var(--home-shortcuts-width); margin-inline-end: var(--home-rail-inset); pointer-events: none; }
 .homelab-shortcut-rail { position: relative; isolation: isolate; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; inline-size: var(--shortcut-size); margin-inline-start: auto; pointer-events: auto; }
 .homelab-shortcut-rail::before, .homelab-shortcut-rail::after { content: ""; position: absolute; z-index: -1; pointer-events: none; clip-path: polygon(var(--shortcut-corner) 0, 100% 0, 100% 100%, 0 100%, 0 var(--shortcut-corner)); }

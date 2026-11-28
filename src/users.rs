@@ -181,24 +181,34 @@ fn write_activity_profile(
     Ok(())
 }
 
+#[derive(Deserialize, Serialize)]
+enum CreateUser {
+    Created(User),
+    Invalid(String),
+}
+
 #[post("/api/users/create")]
 async fn create_user(
     username: String,
     first: String,
     last: String,
     password: String,
-) -> Result<Option<String>, ServerFnError> {
+) -> Result<CreateUser, ServerFnError> {
     require_admin()?;
     let result = crate::auth::server::run_blocking(move || {
         let (username, first, last) = crate::accounts::details(&username, &first, &last)?;
         let hash = crate::accounts::hash_password(&password)?;
-        crate::auth::server::connection()?.execute(
-            "INSERT INTO users (username, first_name, last_name, password_hash) VALUES (?1, ?2, ?3, ?4)",
+        let id = crate::auth::server::connection()?.query_row(
+            "INSERT INTO users (username, first_name, last_name, password_hash) VALUES (?1, ?2, ?3, ?4) RETURNING id",
             rusqlite::params![username, first, last, hash],
+            |row| row.get(0),
         ).map_err(crate::accounts::save_error)?;
-        Ok(())
+        Ok(User { id, username, first_name: first, last_name: last, is_admin: false, plex_profile_id: None, steam_id: None })
     }).await;
-    Ok(result.err().map(str::to_owned))
+    Ok(match result {
+        Ok(user) => CreateUser::Created(user),
+        Err(error) => CreateUser::Invalid(error.into()),
+    })
 }
 
 #[post("/api/users/edit")]
@@ -247,12 +257,21 @@ fn require_admin() -> Result<(), ServerFnError> {
 
 #[component]
 pub fn Users() -> Element {
-    let mut users = use_server_future(list_users)?;
+    let users = use_server_future(list_users)?;
     let profiles = use_resource(plex_profiles);
     let mut selected = use_signal(|| None::<i64>);
+    let mut adding = use_signal(|| false);
+    let mut added = use_signal(|| false);
+    let mut focus_after_add = use_signal(|| None::<&'static str>);
     let pending = use_signal(|| false);
-    use_context_provider(|| UserDirectory(users));
+    let directory = use_context_provider(|| UserDirectory(users));
     use_context_provider(|| pending);
+    use_effect(move || {
+        if let Some(id) = focus_after_add() {
+            focus_after_add.set(None);
+            let _ = document::eval(&format!("document.getElementById({id:?})?.focus()"));
+        }
+    });
     let result = users.read();
     rsx! {
         main { id: "main", class: "dashboard interior-page users-page", tabindex: "-1",
@@ -260,34 +279,68 @@ pub fn Users() -> Element {
             h1 { "Users" }
             match result.as_ref() {
                 Some(Ok(accounts)) => rsx! {
-                    div { class: "users-grid",
-                        section { class: "add-task-panel surface-panel",
-                            h2 { "Add user" }
-                            UserDetails { on_saved: move |_| users.restart() }
-                        }
-                        div { class: "user-list",
+                    div { class: "user-list",
+                        div { class: "users-toolbar",
                             div { class: "user-selector",
                                 label { r#for: "users-account", "User" }
                                 select {
                                     id: "users-account",
                                     value: selected().map(|id| id.to_string()).unwrap_or_default(),
-                                    disabled: pending() || accounts.is_empty(),
+                                    disabled: pending() || adding() || accounts.is_empty(),
                                     onchange: move |event| {
-                                        if !*pending.peek() {
+                                        if !*pending.peek() && !*adding.peek() {
                                             selected.set(event.value().parse().ok());
+                                            added.set(false);
                                         }
                                     },
                                     option { value: "", disabled: true, selected: selected().is_none(), "Choose a user" }
                                     for user in accounts {
-                                        option { key: "{user.id}", value: "{user.id}", "{user.first_name} {user.last_name} ({user.username})" }
+                                        option { key: "{user.id}", value: "{user.id}", selected: selected() == Some(user.id),
+                                            "{user.first_name} {user.last_name} ({user.username})"
+                                        }
                                     }
                                 }
                             }
-                            if let Some(user) = accounts.iter().find(|user| Some(user.id) == selected()) {
+                            button {
+                                id: "users-add-action", class: "primary-button", r#type: "button",
+                                aria_expanded: adding(), aria_controls: "users-workspace", disabled: pending() || adding(),
+                                onclick: move |_| {
+                                    if !*pending.peek() {
+                                        added.set(false);
+                                        adding.set(true);
+                                    }
+                                },
+                                "Add user"
+                            }
+                        }
+                        if added() { p { class: "form-feedback", role: "status", "User added." } }
+                        div { id: "users-workspace",
+                            if adding() {
+                                section { class: "add-task-panel surface-panel",
+                                    h2 { "Add user" }
+                                    UserDetails { on_created: move |user: User| {
+                                        let id = user.id;
+                                        directory.insert(user);
+                                        selected.set(Some(id));
+                                        adding.set(false);
+                                        added.set(true);
+                                        focus_after_add.set(Some("users-account"));
+                                    } }
+                                    button { class: "secondary-button users-cancel-add", r#type: "button", disabled: pending(),
+                                        onclick: move |_| {
+                                            if !*pending.peek() {
+                                                adding.set(false);
+                                                focus_after_add.set(Some("users-add-action"));
+                                            }
+                                        },
+                                        "Cancel"
+                                    }
+                                }
+                            } else if let Some(user) = accounts.iter().find(|user| Some(user.id) == selected()) {
                                 section { key: "{user.id}", class: "add-task-panel surface-panel",
                                     h2 { "{user.first_name} {user.last_name}" }
                                     if user.is_admin { p { "Your admin account" } }
-                                    UserDetails { user: user.clone(), on_saved: |_| {} }
+                                    UserDetails { user: user.clone(), on_created: |_| {} }
                                     PlexProfileForm { id: user.id, initial: user.plex_profile_id, profiles }
                                     SteamProfileForm { id: user.id, initial: user.steam_id.clone() }
                                     PasswordReset { id: user.id, is_admin: user.is_admin }
@@ -307,19 +360,30 @@ pub fn Users() -> Element {
 struct UserDirectory(Resource<Result<Vec<User>, ServerFnError>>);
 
 impl UserDirectory {
+    fn insert(mut self, user: User) {
+        if let Some(Ok(accounts)) = self.0.write().as_mut() {
+            accounts.push(user);
+            sort_users(accounts);
+        }
+    }
+
     fn update(mut self, id: i64, update: impl FnOnce(&mut User)) {
         let mut result = self.0.write();
         if let Some(Ok(accounts)) = result.as_mut() {
             if let Some(user) = accounts.iter_mut().find(|user| user.id == id) {
                 update(user);
-                accounts.sort_by(|a, b| {
-                    b.is_admin
-                        .cmp(&a.is_admin)
-                        .then_with(|| a.username.cmp(&b.username))
-                });
+                sort_users(accounts);
             }
         }
     }
+}
+
+fn sort_users(accounts: &mut [User]) {
+    accounts.sort_by(|a, b| {
+        b.is_admin
+            .cmp(&a.is_admin)
+            .then_with(|| a.username.cmp(&b.username))
+    });
 }
 
 #[component]
@@ -423,7 +487,7 @@ fn SteamProfileForm(id: i64, initial: Option<String>) -> Element {
 }
 
 #[component]
-fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>) -> Element {
+fn UserDetails(#[props(default)] user: Option<User>, on_created: EventHandler<User>) -> Element {
     let id = user.as_ref().map(|user| user.id);
     let form_id = id.map_or_else(|| "new-user".to_owned(), |id| format!("user-{id}"));
     let mut username = use_signal(|| {
@@ -448,38 +512,40 @@ fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>)
             async move {
                 if !submission.begin() { return; }
                 let (submitted_username, submitted_first, submitted_last) = (username(), first(), last());
-                let result = match id {
-                    Some(id) => edit_user(id, submitted_username.clone(), submitted_first.clone(), submitted_last.clone()).await,
-                    None => create_user(submitted_username.clone(), submitted_first.clone(), submitted_last.clone(), password()).await,
+                let Some(id) = id else {
+                    let result = create_user(submitted_username, submitted_first, submitted_last, password()).await;
+                    submission.finish();
+                    match result {
+                        Ok(CreateUser::Created(user)) => {
+                            password.set(String::new());
+                            on_created.call(user);
+                        }
+                        Ok(CreateUser::Invalid(message)) => submission.report(Ok(Some(message)), "User added."),
+                        Err(error) => submission.report(Err(error), "User added."),
+                    }
+                    return;
                 };
+                let result = edit_user(id, submitted_username.clone(), submitted_first.clone(), submitted_last.clone()).await;
                 submission.finish();
                 if matches!(result, Ok(None)) {
-                    if let Some(id) = id {
-                        let saved_username = submitted_username.trim().to_ascii_lowercase();
-                        let saved_first = submitted_first.trim().to_owned();
-                        let saved_last = submitted_last.trim().to_owned();
-                        directory.update(id, |user| {
-                            user.username = saved_username.clone();
-                            user.first_name = saved_first.clone();
-                            user.last_name = saved_last.clone();
-                        });
-                        username.set(saved_username);
-                        first.set(saved_first);
-                        last.set(saved_last);
-                    } else {
-                        username.set(String::new());
-                        first.set(String::new());
-                        last.set(String::new());
-                        password.set(String::new());
-                    }
-                    on_saved.call(());
+                    let saved_username = submitted_username.trim().to_ascii_lowercase();
+                    let saved_first = submitted_first.trim().to_owned();
+                    let saved_last = submitted_last.trim().to_owned();
+                    directory.update(id, |user| {
+                        user.username = saved_username.clone();
+                        user.first_name = saved_first.clone();
+                        user.last_name = saved_last.clone();
+                    });
+                    username.set(saved_username);
+                    first.set(saved_first);
+                    last.set(saved_last);
                 }
-                let success = if id.is_some() { "Details saved." } else { "User added." };
-                submission.report(result, success);
+                submission.report(result, "Details saved.");
             }
         },
             label { r#for: "{form_id}-username", "Username" }
             input { id: "{form_id}-username", name: "username", autocomplete: "off", value: "{username}", required: true, maxlength: "40", autocapitalize: "none", spellcheck: "false", readonly: (submission.pending)(),
+                onmounted: move |event| async move { if id.is_none() { let _ = event.set_focus(true).await; } },
                 oninput: move |event| username.set(event.value()) }
             label { r#for: "{form_id}-first", "First name" }
             input { id: "{form_id}-first", name: "first_name", autocomplete: "off", value: "{first}", required: true, maxlength: "80", readonly: (submission.pending)(),
