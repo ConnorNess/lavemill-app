@@ -2,7 +2,7 @@ const [page, returningHome, recipeId] = await dioxus.recv();
 const root = document.documentElement;
 const activeClass = "home-card-transition";
 const returnClass = "home-card-return";
-const shoppingClass = "home-card-open-shopping";
+const deckClass = "home-card-deck";
 
 if (root.classList.contains(activeClass)) {
     dioxus.send(false);
@@ -44,41 +44,38 @@ if (recipeKey !== null) {
 }
 const destinationSelector = returningHome ? "main.home-dashboard" : `main#main${destinationPage}`;
 const properties = ["--card-reveal-x", "--card-reveal-y", "--card-reveal-radius"];
-const taskSelector = "[data-task-transition-id]";
-const visibleTasks = new Set();
-const namedRows = [];
-const visibleTaskRows = (container, clippingCard) => {
-    const cardTop = clippingCard
-        ? clippingCard.getBoundingClientRect().top + clippingCard.clientTop
-        : 0;
-    const top = Math.max(0, cardTop);
-    const bottom = clippingCard
-        ? Math.min(root.clientHeight, cardTop + clippingCard.clientHeight)
-        : root.clientHeight;
-    // Clipped rows would pop into view when promoted to their own snapshot.
-    return Array.from(container.querySelectorAll(taskSelector)).filter((row) => {
-        const { height, top: rowTop, bottom: rowBottom } = row.getBoundingClientRect();
-        return height > 0 && rowTop >= top && rowBottom <= bottom;
-    });
+const namedElements = [];
+const nameElement = (element, name) => {
+    element.style.viewTransitionName = name;
+    namedElements.push(element);
 };
-const nameTaskRow = (row) => {
-    row.style.viewTransitionName = `home-card-task-${row.dataset.taskTransitionId}`;
-    namedRows.push(row);
+const nameDeck = (selected) => {
+    const cards = Array.from(selected.parentElement.querySelectorAll(":scope > .dashboard-card"));
+    const selectedIndex = cards.indexOf(selected);
+    for (const [index, card] of cards.entries()) {
+        const offset = index - selectedIndex;
+        if (offset === 0) {
+            nameElement(card, "navigation-panel");
+        } else {
+            const before = offset < 0;
+            const direction = before ? "before" : "after";
+            const delayed = before ? index > 0 : offset === 1;
+            nameElement(card, `dashboard-card-${direction}${delayed ? "-delayed" : ""}`);
+        }
+    }
 };
 const outgoingPage = openingFromHeader || recipeKey !== null ? interiorPage : null;
 const outgoingClass = "home-card-source";
-const openingShopping = page === "shopping" && !returningHome;
+const deckTransition = ["shopping", "todos", "calendar"].includes(page);
 
 root.classList.add(activeClass);
 root.classList.toggle(returnClass, returningHome);
-root.classList.toggle(shoppingClass, openingShopping);
+root.classList.toggle(deckClass, deckTransition);
 try {
     outgoingPage?.classList.add(outgoingClass);
-    if (page === "todos") {
-        for (const row of visibleTaskRows(source, returningHome ? null : source)) {
-            visibleTasks.add(row.dataset.taskTransitionId);
-            nameTaskRow(row);
-        }
+    if (deckTransition) {
+        if (returningHome) nameElement(source, "navigation-panel");
+        else nameDeck(source);
     }
 
     const transition = document.startViewTransition(() => new Promise((resolve) => {
@@ -91,7 +88,15 @@ try {
         const findPage = () => {
             const destination = document.querySelector(destinationSelector);
             if (!destination) return;
-            if (openingShopping) {
+            if (deckTransition) {
+                if (returningHome) {
+                    const landingCard = findCard();
+                    if (!landingCard) return;
+                    landingCard.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+                    nameDeck(landingCard);
+                } else {
+                    nameElement(destination, "navigation-panel");
+                }
                 finish();
                 return;
             }
@@ -115,14 +120,6 @@ try {
             root.style.setProperty("--card-reveal-x", `${centerX - left}px`);
             root.style.setProperty("--card-reveal-y", `${centerY - top}px`);
             root.style.setProperty("--card-reveal-radius", `${radius}px`);
-            if (visibleTasks.size) {
-                const destinationRows = landingCard
-                    ? visibleTaskRows(landingCard, landingCard)
-                    : destination.querySelectorAll(taskSelector);
-                for (const row of destinationRows) {
-                    if (visibleTasks.has(row.dataset.taskTransitionId)) nameTaskRow(row);
-                }
-            }
             finish();
         };
         const observer = new MutationObserver(findPage);
@@ -139,8 +136,8 @@ try {
     transition.ready.catch(() => {});
     await transition.finished;
 } finally {
-    root.classList.remove(activeClass, returnClass, shoppingClass);
+    root.classList.remove(activeClass, returnClass, deckClass);
     outgoingPage?.classList.remove(outgoingClass);
     for (const property of properties) root.style.removeProperty(property);
-    for (const row of namedRows) row.style.removeProperty("view-transition-name");
+    for (const element of namedElements) element.style.removeProperty("view-transition-name");
 }
