@@ -442,6 +442,8 @@ svg { display: block; flex-shrink: 0; }
 .login-page .login-field input:focus-visible { outline-offset: -6px; }
 .login-page .primary-button { justify-self: start; margin-top: 4px; }
 .login-page .primary-button:focus-visible { outline-color: currentColor; outline-offset: -6px; }
+.login-page .guest-signin { margin-top: 12px; }
+.login-page .guest-signin .secondary-button { justify-self: start; min-height: 44px; }
 .users-page { max-width: 1050px; overflow-wrap: anywhere; }
 .users-page h1 { margin-bottom: 24px; }
 .user-list { display: grid; gap: 20px; }

@@ -82,6 +82,9 @@ pub fn Login(error: Option<String>) -> Element {
                     }
                     button { class: "primary-button", r#type: "submit", "Sign in" }
                 }
+                form { class: "guest-signin", action: "/auth/guest", method: "post",
+                    button { class: "secondary-button", r#type: "submit", "Continue as guest" }
+                }
             }
         }
     }
@@ -115,6 +118,7 @@ pub mod server {
     use url::Url;
 
     const SESSION_SECONDS: i64 = 7 * 24 * 60 * 60;
+    const GUEST_SESSION_SECONDS: i64 = 24 * 60 * 60;
 
     #[derive(Clone)]
     struct AuthState {
@@ -123,6 +127,7 @@ pub mod server {
         secure: bool,
         dummy_hash: Arc<str>,
         attempts: Arc<Mutex<Attempts>>,
+        guest_attempts: Arc<Mutex<GuestAttempts>>,
         verification_slots: Arc<Semaphore>,
         calendars: crate::calendar_server::CalendarClients,
         tautulli: crate::tautulli::Tautulli,
@@ -136,6 +141,25 @@ pub mod server {
         since: Instant,
         total: u32,
         by_username: HashMap<String, u32>,
+    }
+
+    struct GuestAttempts {
+        since: Instant,
+        total: u32,
+    }
+
+    impl GuestAttempts {
+        fn allow(&mut self) -> bool {
+            if self.since.elapsed() >= Duration::from_secs(60) {
+                self.since = Instant::now();
+                self.total = 0;
+            }
+            if self.total >= 120 {
+                return false;
+            }
+            self.total += 1;
+            true
+        }
     }
 
     impl Attempts {
@@ -191,6 +215,10 @@ pub mod server {
                     since: Instant::now(),
                     total: 0,
                     by_username: HashMap::new(),
+                })),
+                guest_attempts: Arc::new(Mutex::new(GuestAttempts {
+                    since: Instant::now(),
+                    total: 0,
                 })),
                 verification_slots: Arc::new(Semaphore::new(2)),
             })
@@ -264,6 +292,7 @@ pub mod server {
         Ok(Router::new()
             .route("/healthz", get(|| async { StatusCode::NO_CONTENT }))
             .route("/auth/login", post(sign_in))
+            .route("/auth/guest", post(sign_in_as_guest))
             .route("/auth/logout", post(sign_out))
             .route(
                 "/calendar/{provider}/connect",
@@ -468,6 +497,7 @@ pub mod server {
             ("/api/session", Session),
             ("/api/session/", Other),
             ("/login", PublicAuth),
+            ("/auth/guest", PublicAuth),
             ("/auth/logout", PublicAuth),
             ("/healthz", Other),
         ] {
@@ -573,10 +603,12 @@ pub mod server {
     async fn sign_out(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         if let Some(token) = state.token(&headers) {
             let result = run_blocking(move || {
-                connection()?
-                    .execute("DELETE FROM sessions WHERE token_hash = ?1", [&token[..]])
+                let mut db = connection()?;
+                let transaction = db
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
                     .map_err(accounts::database_error)?;
-                Ok(())
+                revoke_session(&transaction, &token)?;
+                transaction.commit().map_err(accounts::database_error)
             })
             .await;
             if result.is_err() {
@@ -592,6 +624,24 @@ pub mod server {
             Redirect::to("/login"),
         )
             .into_response()
+    }
+
+    async fn sign_in_as_guest(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+        if !state.guest_attempts.lock().unwrap().allow() {
+            return Redirect::to("/login?error=retry").into_response();
+        }
+        let previous = state.token(&headers);
+        match run_blocking(move || issue_guest_session(&mut connection()?, previous)).await {
+            Ok(token) => (
+                [(
+                    header::SET_COOKIE,
+                    state.cookie(&token, GUEST_SESSION_SECONDS),
+                )],
+                Redirect::to("/"),
+            )
+                .into_response(),
+            Err(_) => Redirect::to("/login?error=unavailable").into_response(),
+        }
     }
 
     pub async fn run_blocking<T: Send + 'static>(
@@ -617,8 +667,14 @@ pub mod server {
     }
 
     fn lookup_session(token: &[u8; 32]) -> Result<Option<Viewer>, &'static str> {
-        let db = connection()?;
-        let now = now();
+        read_session(&connection()?, token, now())
+    }
+
+    fn read_session(
+        db: &rusqlite::Connection,
+        token: &[u8; 32],
+        now: i64,
+    ) -> Result<Option<Viewer>, &'static str> {
         let member = db.query_row(
             "SELECT users.id, first_name, is_admin FROM sessions JOIN users ON users.id = user_id WHERE token_hash = ?1 AND expires_at > ?2",
             params![&token[..], now],
@@ -633,6 +689,54 @@ pub mod server {
             |row| Ok(row.get::<_, bool>(0)?.then_some(Viewer::Guest)),
         )
         .map_err(accounts::database_error)
+    }
+
+    fn new_session_token() -> Result<([u8; 32], String), &'static str> {
+        let mut secret = [0; 32];
+        getrandom::fill(&mut secret).map_err(|_| "Could not generate a session token.")?;
+        Ok((
+            Sha256::digest(secret).into(),
+            URL_SAFE_NO_PAD.encode(secret),
+        ))
+    }
+
+    fn revoke_session(db: &rusqlite::Connection, token: &[u8; 32]) -> Result<(), &'static str> {
+        db.execute("DELETE FROM sessions WHERE token_hash = ?1", [&token[..]])
+            .map_err(accounts::database_error)?;
+        db.execute(
+            "DELETE FROM guest_sessions WHERE token_hash = ?1",
+            [&token[..]],
+        )
+        .map_err(accounts::database_error)?;
+        Ok(())
+    }
+
+    fn issue_guest_session(
+        db: &mut rusqlite::Connection,
+        previous: Option<[u8; 32]>,
+    ) -> Result<String, &'static str> {
+        let (token_hash, token) = new_session_token()?;
+        let transaction = db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(accounts::database_error)?;
+        let issued_at = now();
+        transaction
+            .execute(
+                "DELETE FROM guest_sessions WHERE expires_at <= ?1",
+                [issued_at],
+            )
+            .map_err(accounts::database_error)?;
+        if let Some(previous) = previous {
+            revoke_session(&transaction, &previous)?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO guest_sessions (token_hash, expires_at) VALUES (?1, ?2)",
+                params![&token_hash[..], issued_at + GUEST_SESSION_SECONDS],
+            )
+            .map_err(accounts::database_error)?;
+        transaction.commit().map_err(accounts::database_error)?;
+        Ok(token)
     }
 
     fn issue_session(
@@ -660,9 +764,7 @@ pub mod server {
             return Ok(None);
         };
 
-        let mut secret = [0; 32];
-        getrandom::fill(&mut secret).map_err(|_| "Could not generate a session token.")?;
-        let token_hash = Sha256::digest(secret);
+        let (token_hash, token) = new_session_token()?;
         let transaction = db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(accounts::database_error)?;
@@ -684,18 +786,61 @@ pub mod server {
             return Ok(None);
         }
         transaction
-            .execute(
-                "DELETE FROM sessions WHERE expires_at <= ?1 OR token_hash = ?2",
-                params![issued_at, previous.as_ref().map(|token| &token[..])],
-            )
+            .execute("DELETE FROM sessions WHERE expires_at <= ?1", [issued_at])
             .map_err(accounts::database_error)?;
+        if let Some(previous) = previous {
+            revoke_session(&transaction, &previous)?;
+        }
         transaction.commit().map_err(accounts::database_error)?;
-        Ok(Some(URL_SAFE_NO_PAD.encode(secret)))
+        Ok(Some(token))
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn guest_sessions_expire_and_rotate_without_creating_users() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("guest.sqlite");
+            database::initialize(&path).unwrap();
+            let mut db = database::open(&path).unwrap();
+            let state = AuthState::new("https://lavemill.example.com").unwrap();
+            let token_hash = |token: &str| {
+                let cookie =
+                    HeaderValue::from_str(&format!("{}={token}", state.cookie_name())).unwrap();
+                let mut headers = HeaderMap::new();
+                headers.insert(header::COOKIE, cookie);
+                state.token(&headers).unwrap()
+            };
+            let token = issue_guest_session(&mut db, None).unwrap();
+            let first = token_hash(&token);
+            let expiry: i64 = db
+                .query_row("SELECT expires_at FROM guest_sessions", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(
+                read_session(&db, &first, expiry - 1).unwrap(),
+                Some(Viewer::Guest)
+            );
+            assert_eq!(read_session(&db, &first, expiry).unwrap(), None);
+
+            let token = issue_guest_session(&mut db, Some(first)).unwrap();
+            let second = token_hash(&token);
+            assert_ne!(first, second);
+            assert_eq!(read_session(&db, &first, now()).unwrap(), None);
+            assert_eq!(
+                read_session(&db, &second, now()).unwrap(),
+                Some(Viewer::Guest)
+            );
+            revoke_session(&db, &second).unwrap();
+            assert_eq!(read_session(&db, &second, now()).unwrap(), None);
+            let users: i64 = db
+                .query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(users, 0);
+        }
 
         #[test]
         fn loopback_alias_requires_matching_host_and_port() {
