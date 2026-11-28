@@ -444,6 +444,7 @@ svg { display: block; flex-shrink: 0; }
 .users-page h1 { margin-bottom: 24px; }
 .users-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 24px; align-items: start; }
 .user-list { display: grid; gap: 20px; }
+.user-selector { display: grid; gap: 6px; }
 .reset-form { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
 .reset-form button { justify-self: start; }
 .reset-form :is(p, label) { overflow-wrap: anywhere; }
