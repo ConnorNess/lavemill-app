@@ -161,7 +161,7 @@ pub(super) fn Recipes() -> Element {
         main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipes-index": "",
             header { class: "recipe-heading",
                 h1 { "Recipes" }
-                Link { class: "recipe-action primary-button", to: Route::NewRecipe {}, "Add recipe" }
+                Link { class: "recipe-action recipe-control primary-button", to: Route::NewRecipe {}, "Add recipe" }
             }
             match recipes.read().as_ref() {
                 Some(Ok(cards)) if cards.is_empty() => rsx! { p { "No recipes yet." } },
