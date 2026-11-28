@@ -85,7 +85,7 @@ async fn add_recipe_ingredients(
 
 #[get("/api/recipes")]
 async fn list_recipes() -> Result<Vec<RecipeCard>, ServerFnError> {
-    crate::auth::require_member()?;
+    crate::auth::require_viewer()?;
     crate::auth::server::run_blocking(|| {
         storage::list(&crate::auth::server::connection()?).map_err(crate::accounts::database_error)
     })
@@ -95,7 +95,7 @@ async fn list_recipes() -> Result<Vec<RecipeCard>, ServerFnError> {
 
 #[get("/api/recipes/:id")]
 async fn get_recipe(id: i64) -> Result<Option<Recipe>, ServerFnError> {
-    crate::auth::require_member()?;
+    crate::auth::require_viewer()?;
     crate::auth::server::run_blocking(move || {
         storage::get(&mut crate::auth::server::connection()?, id)
             .map_err(crate::accounts::database_error)

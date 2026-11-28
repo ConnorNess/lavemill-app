@@ -8,6 +8,12 @@ pub fn list(db: &mut Connection) -> Result<Vec<ShoppingItem>, &'static str> {
     access(db, read_items).map_err(database_error)
 }
 
+pub fn snapshot(db: &Connection) -> Result<Vec<ShoppingItem>, &'static str> {
+    current_time(db)
+        .and_then(|now| read_items(db, now))
+        .map_err(database_error)
+}
+
 pub fn apply(
     db: &mut Connection,
     actor: i64,
@@ -75,12 +81,13 @@ fn access_at<T>(
     operation(db, now)
 }
 
-fn read_items(db: &Connection, _: i64) -> rusqlite::Result<Vec<ShoppingItem>> {
+fn read_items(db: &Connection, now: i64) -> rusqlite::Result<Vec<ShoppingItem>> {
     let mut statement = db.prepare(
         "SELECT id, name, quantity, completed_at IS NOT NULL FROM shopping_items
-         WHERE removed_at IS NULL ORDER BY completed_at IS NOT NULL, id",
+         WHERE removed_at IS NULL AND (completed_at IS NULL OR completed_at > ?1)
+         ORDER BY completed_at IS NOT NULL, id",
     )?;
-    let rows = statement.query_map([], |row| {
+    let rows = statement.query_map([now - RETENTION_SECONDS], |row| {
         Ok(ShoppingItem {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -230,6 +237,33 @@ mod tests {
         assert_eq!(items.iter().map(|item| item.id).collect::<Vec<_>>(), [3, 2]);
         let items = access_at(&db, 103 + RETENTION_SECONDS, read_items).unwrap();
         assert_eq!(items.iter().map(|item| item.id).collect::<Vec<_>>(), [3]);
+    }
+
+    #[test]
+    fn guest_snapshot_hides_expired_items_without_deleting_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shopping.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let db = crate::database::open(&path).unwrap();
+        setup(&db);
+        assert_eq!(change(&db, 100, 1, add("Milk", "")), None);
+        assert_eq!(change(&db, 100, 1, add("Bread", "")), None);
+        assert_eq!(
+            change(
+                &db,
+                100,
+                1,
+                ShoppingChange::SetChecked {
+                    id: 1,
+                    checked: true
+                }
+            ),
+            None
+        );
+        db.pragma_update(None, "query_only", true).unwrap();
+        let items = snapshot(&db).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "Bread");
     }
 
     #[test]

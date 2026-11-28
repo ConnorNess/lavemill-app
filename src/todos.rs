@@ -115,10 +115,14 @@ pub(crate) enum Change {
 
 #[get("/api/todos")]
 async fn list_tasks() -> Result<Tasks, ServerFnError> {
-    crate::auth::require_member()?;
-    crate::auth::server::run_blocking(|| {
+    let viewer = crate::auth::require_viewer()?;
+    crate::auth::server::run_blocking(move || {
         let today = crate::todo_storage::household_date()?;
-        crate::todo_storage::list(&mut crate::auth::server::connection()?, today)
+        let mut db = crate::auth::server::connection()?;
+        match viewer {
+            crate::auth::Viewer::Member(_) => crate::todo_storage::list(&mut db, today),
+            crate::auth::Viewer::Guest => crate::todo_storage::snapshot(&db, today),
+        }
     })
     .await
     .map_err(ServerFnError::new)

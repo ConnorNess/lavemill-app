@@ -34,9 +34,13 @@ pub(crate) enum ShoppingChange {
 
 #[get("/api/shopping")]
 pub(crate) async fn list_shopping() -> Result<Vec<ShoppingItem>, ServerFnError> {
-    crate::auth::require_member()?;
-    crate::auth::server::run_blocking(|| {
-        crate::shopping_storage::list(&mut crate::auth::server::connection()?)
+    let viewer = crate::auth::require_viewer()?;
+    crate::auth::server::run_blocking(move || {
+        let mut db = crate::auth::server::connection()?;
+        match viewer {
+            crate::auth::Viewer::Member(_) => crate::shopping_storage::list(&mut db),
+            crate::auth::Viewer::Guest => crate::shopping_storage::snapshot(&db),
+        }
     })
     .await
     .map_err(ServerFnError::new)

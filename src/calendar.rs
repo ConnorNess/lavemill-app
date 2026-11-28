@@ -144,12 +144,15 @@ async fn shared_agenda() -> Result<Option<Agenda>, ServerFnError> {
 }
 
 #[cfg(feature = "server")]
-fn calendar_context(
-) -> Result<(crate::auth::Viewer, crate::calendar_server::CalendarClients), ServerFnError> {
+fn calendar_context() -> Result<
+    (
+        crate::auth::MemberViewer,
+        crate::calendar_server::CalendarClients,
+    ),
+    ServerFnError,
+> {
+    let viewer = crate::auth::require_member()?;
     let context = dioxus::fullstack::FullstackContext::current()
-        .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
-    let viewer = context
-        .extension()
         .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
     let clients = context
         .extension()

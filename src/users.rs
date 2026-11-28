@@ -249,7 +249,7 @@ async fn reset_password(id: i64, password: String) -> Result<Option<String>, Ser
 
 #[cfg(feature = "server")]
 fn require_admin() -> Result<(), ServerFnError> {
-    if crate::auth::request_viewer().is_some_and(|viewer| viewer.is_admin) {
+    if crate::auth::request_viewer().is_some_and(|viewer| viewer.is_admin()) {
         return Ok(());
     }
     Err(ServerFnError::new("Administrator access required."))

@@ -117,7 +117,7 @@ fn HouseholdLayout() -> Element {
     let viewer = use_server_future(auth::current_viewer)?;
     let viewer = viewer.read();
     let is_admin = match viewer.as_ref() {
-        Some(Ok(Some(viewer))) => viewer.is_admin,
+        Some(Ok(Some(viewer))) => viewer.is_admin(),
         Some(Ok(None)) => {
             return rsx! { main { class: "dashboard", a { href: "/login", "Sign in to continue" } } }
         }

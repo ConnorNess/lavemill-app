@@ -2,7 +2,19 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct Viewer {
+pub enum Viewer {
+    Member(MemberViewer),
+    Guest,
+}
+
+impl Viewer {
+    pub fn is_admin(&self) -> bool {
+        matches!(self, Self::Member(member) if member.is_admin)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MemberViewer {
     pub id: i64,
     pub first_name: String,
     pub is_admin: bool,
@@ -19,8 +31,16 @@ pub(crate) fn request_viewer() -> Option<Viewer> {
 }
 
 #[cfg(feature = "server")]
-pub(crate) fn require_member() -> Result<Viewer, ServerFnError> {
+pub(crate) fn require_viewer() -> Result<Viewer, ServerFnError> {
     request_viewer().ok_or_else(|| ServerFnError::new("Sign in to continue."))
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn require_member() -> Result<MemberViewer, ServerFnError> {
+    match require_viewer()? {
+        Viewer::Member(member) => Ok(member),
+        Viewer::Guest => Err(ServerFnError::new("Household member access required.")),
+    }
 }
 
 #[component]
@@ -63,7 +83,7 @@ pub fn Login(error: Option<String>) -> Element {
 
 #[cfg(feature = "server")]
 pub mod server {
-    use super::Viewer;
+    use super::{MemberViewer, Viewer};
     use crate::{accounts, database, App};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use dioxus::server::{
@@ -268,6 +288,7 @@ pub mod server {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum RequestKind {
         HouseholdPage,
+        MemberPage,
         AdminPage,
         HouseholdApi,
         AdminApi,
@@ -280,12 +301,16 @@ pub mod server {
 
     impl RequestKind {
         fn classify(path: &str) -> Self {
-            match path.trim_end_matches('/') {
+            let page = path.trim_end_matches('/');
+            match page {
                 "/users" => return Self::AdminPage,
-                "" | "/todos" | "/shopping" | "/calendar" => return Self::HouseholdPage,
+                "/calendar" | "/recipes/new" => return Self::MemberPage,
+                "" | "/todos" | "/shopping" => return Self::HouseholdPage,
                 _ => {}
             }
-            if path == "/recipes" || path.starts_with("/recipes/") {
+            if page.starts_with("/recipes/") && page.ends_with("/edit") {
+                Self::MemberPage
+            } else if page == "/recipes" || page.starts_with("/recipes/") {
                 Self::HouseholdPage
             } else if path.starts_with("/api/users") {
                 Self::AdminApi
@@ -293,8 +318,7 @@ pub mod server {
                 Self::Session
             } else if path == "/api/activity" {
                 Self::ActivityApi
-            } else if path.starts_with("/calendar/google/")
-                || path.starts_with("/calendar/outlook/")
+            } else if path.starts_with("/calendar/")
                 || path == "/api/calendar"
                 || path.starts_with("/api/calendar/")
             {
@@ -317,6 +341,26 @@ pub mod server {
                 Self::Other
             }
         }
+
+        fn guest_denial(self, path: &str, method: &Method) -> Option<Response> {
+            match self {
+                Self::MemberPage | Self::AdminPage => Some(Redirect::to("/").into_response()),
+                Self::HouseholdPage | Self::HouseholdApi | Self::ActivityApi | Self::Session
+                    if matches!(*method, Method::GET | Method::HEAD)
+                        && (self != Self::HouseholdApi || is_guest_read(path)) =>
+                {
+                    None
+                }
+                _ => Some(StatusCode::FORBIDDEN.into_response()),
+            }
+        }
+    }
+
+    fn is_guest_read(path: &str) -> bool {
+        matches!(path, "/api/todos" | "/api/shopping" | "/api/recipes")
+            || path
+                .strip_prefix("/api/recipes/")
+                .is_some_and(|id| id.parse::<i64>().is_ok())
     }
 
     async fn guard(State(state): State<AuthState>, mut request: Request, next: Next) -> Response {
@@ -344,23 +388,37 @@ pub mod server {
             };
             match viewer {
                 Some(viewer) => {
+                    if matches!(viewer, Viewer::Guest) {
+                        if let Some(response) =
+                            kind.guest_denial(request.uri().path(), request.method())
+                        {
+                            return private(response);
+                        }
+                    }
                     if matches!(kind, RequestKind::AdminPage | RequestKind::AdminApi)
-                        && !viewer.is_admin
+                        && !viewer.is_admin()
                     {
                         return private(StatusCode::FORBIDDEN.into_response());
                     }
-                    request.extensions_mut().insert(viewer);
-                    if let Some(token) = token {
-                        request.extensions_mut().insert(SessionHash(token));
+                    if let Viewer::Member(member) = &viewer {
+                        request.extensions_mut().insert(member.clone());
+                        if let Some(token) = token {
+                            request.extensions_mut().insert(SessionHash(token));
+                        }
+                        request.extensions_mut().insert(state.calendars.clone());
                     }
-                    request.extensions_mut().insert(state.calendars.clone());
+                    request.extensions_mut().insert(viewer);
                     request.extensions_mut().insert(state.tautulli.clone());
                     // Home also loads activity during its initial server render.
                     if kind == RequestKind::ActivityApi || request.uri().path() == "/" {
                         request.extensions_mut().insert(state.steam.clone());
                     }
                 }
-                None if matches!(kind, RequestKind::HouseholdPage | RequestKind::AdminPage) => {
+                None if matches!(
+                    kind,
+                    RequestKind::HouseholdPage | RequestKind::MemberPage | RequestKind::AdminPage
+                ) =>
+                {
                     return private(Redirect::to("/login").into_response());
                 }
                 None if kind != RequestKind::Session => {
@@ -385,8 +443,9 @@ pub mod server {
             ("/", HouseholdPage),
             ("/todos/", HouseholdPage),
             ("/shopping", HouseholdPage),
-            ("/recipes/42/edit", HouseholdPage),
-            ("/calendar/", HouseholdPage),
+            ("/recipes/42/edit", MemberPage),
+            ("/recipes/new", MemberPage),
+            ("/calendar/", MemberPage),
             ("/users/", AdminPage),
             ("/api/users/create", AdminApi),
             ("/api/users-extra", AdminApi),
@@ -407,6 +466,58 @@ pub mod server {
             ("/healthz", Other),
         ] {
             assert_eq!(RequestKind::classify(path), expected, "{path}");
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn guests_can_only_read_allowed_pages_and_apis() {
+        for path in [
+            "/",
+            "/todos",
+            "/shopping",
+            "/recipes",
+            "/recipes/42",
+            "/api/session",
+            "/api/todos",
+            "/api/shopping",
+            "/api/recipes",
+            "/api/recipes/42",
+            "/api/activity",
+        ] {
+            assert!(
+                RequestKind::classify(path)
+                    .guest_denial(path, &Method::GET)
+                    .is_none(),
+                "{path}"
+            );
+        }
+        for path in ["/calendar", "/users", "/recipes/new", "/recipes/42/edit"] {
+            let denied = RequestKind::classify(path)
+                .guest_denial(path, &Method::GET)
+                .unwrap();
+            assert_eq!(denied.headers()[header::LOCATION], "/", "{path}");
+        }
+        for (method, path) in [
+            (Method::POST, "/api/todos/change"),
+            (Method::POST, "/api/shopping/change"),
+            (Method::POST, "/api/recipes/create"),
+            (Method::POST, "/api/recipes/42/edit"),
+            (Method::POST, "/api/recipes/42/delete"),
+            (Method::POST, "/api/recipes/42/shopping"),
+            (Method::GET, "/api/calendar/agenda"),
+            (Method::GET, "/api/calendar/view"),
+            (Method::GET, "/api/calendar/connection"),
+            (Method::GET, "/api/calendar/outlook/connection"),
+            (Method::GET, "/calendar/google/callback"),
+            (Method::POST, "/calendar/outlook/share"),
+            (Method::GET, "/api/users"),
+            (Method::GET, "/api/homelab/shortcuts"),
+        ] {
+            let denied = RequestKind::classify(path)
+                .guest_denial(path, &method)
+                .unwrap();
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN, "{path}");
         }
     }
 
@@ -500,11 +611,22 @@ pub mod server {
     }
 
     fn lookup_session(token: &[u8; 32]) -> Result<Option<Viewer>, &'static str> {
-        connection()?.query_row(
+        let db = connection()?;
+        let now = now();
+        let member = db.query_row(
             "SELECT users.id, first_name, is_admin FROM sessions JOIN users ON users.id = user_id WHERE token_hash = ?1 AND expires_at > ?2",
-            params![&token[..], now()],
-            |row| Ok(Viewer { id: row.get(0)?, first_name: row.get(1)?, is_admin: row.get(2)? }),
-        ).optional().map_err(accounts::database_error)
+            params![&token[..], now],
+            |row| Ok(MemberViewer { id: row.get(0)?, first_name: row.get(1)?, is_admin: row.get(2)? }),
+        ).optional().map_err(accounts::database_error)?;
+        if let Some(member) = member {
+            return Ok(Some(Viewer::Member(member)));
+        }
+        db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM guest_sessions WHERE token_hash = ?1 AND expires_at > ?2)",
+            params![&token[..], now],
+            |row| Ok(row.get::<_, bool>(0)?.then_some(Viewer::Guest)),
+        )
+        .map_err(accounts::database_error)
     }
 
     fn issue_session(
