@@ -21,6 +21,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (8, include_str!("migrations/008_activity_profile_links.sql")),
     (9, include_str!("migrations/009_recipes.sql")),
     (10, include_str!("migrations/010_recipe_ids.sql")),
+    (11, include_str!("migrations/011_stable_todo_ids.sql")),
 ];
 
 pub fn initialize(path: &Path) -> Result<()> {
