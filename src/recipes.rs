@@ -272,6 +272,7 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
                     label {
                         "Type “{title}” to confirm"
                         input {
+                            class: "recipe-field",
                             r#type: "text", autocomplete: "off", spellcheck: false,
                             value: "{confirmation}", disabled: stale(),
                             oninput: move |event| confirmation.set(event.value()),
@@ -282,12 +283,12 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
                     }
                     div { class: "recipe-detail-actions recipe-delete-actions",
                         button {
-                            r#type: "button", class: "secondary-button",
+                            r#type: "button", class: "recipe-control secondary-button",
                             onclick: move |_| { let _ = document::eval(r#"document.getElementById("recipe-delete-dialog").close();"#); },
                             "Cancel"
                         }
                         if matches_title && !stale() {
-                            button { r#type: "submit", class: "primary-button",
+                            button { r#type: "submit", class: "recipe-control primary-button",
                                 if pending() { "Deleting…" } else { "Delete recipe" }
                             }
                         }

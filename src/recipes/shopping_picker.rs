@@ -128,21 +128,21 @@ pub(super) fn ShoppingPicker(
                     div { class: "recipe-shopping-actions",
                         button {
                             r#type: "button",
-                            class: "secondary-button",
+                            class: "recipe-control secondary-button",
                             onclick: move |_| { let _ = document::eval(CLOSE_PICKER); },
                             "Cancel"
                         }
                         if stale() {
                             button {
                                 r#type: "button",
-                                class: "primary-button",
+                                class: "recipe-control primary-button",
                                 onclick: move |_| { let _ = document::eval("window.location.reload();"); },
                                 "Reload recipe"
                             }
                         } else {
                             button {
                                 r#type: "submit",
-                                class: "primary-button",
+                                class: "recipe-control primary-button",
                                 disabled: selection.read().is_empty(),
                                 if pending() { "Adding…" } else { "Add selected ingredients" }
                             }
