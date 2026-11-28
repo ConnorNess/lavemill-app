@@ -7,7 +7,10 @@
     const headerSelector = ".site-header";
     const panelName = "navigation-panel";
     const sceneName = "navigation-scene";
+    let stopActiveTransition;
     const anchorSelector = (path) => `[data-navigation-anchor="${CSS.escape(path)}"]`;
+    const canAnimate = () => document.startViewTransition &&
+        !matchMedia("(prefers-reduced-motion: reduce)").matches;
     const findCard = (home, path) => home.querySelector(anchorSelector(path))?.closest(".dashboard-card");
     const findHeaderAnchor = (path) => document.querySelector(headerSelector)
         ?.querySelector(anchorSelector(path));
@@ -17,7 +20,7 @@
         return bottom > 0 && top < root.clientHeight && right > 0 && left < root.clientWidth;
     };
 
-    window.lavemillNavigate = async (path, navigate, { replacing = false, blocked } = {}) => {
+    window.lavemillNavigate = async (path, navigate, { replacing = false, blocked, savedScroll } = {}) => {
         if (root.classList.contains(activeClass)) {
             if (replacing) navigate();
             else blocked?.();
@@ -27,8 +30,7 @@
         const outgoingPage = document.querySelector(pageSelector);
         const from = outgoingPage?.dataset.navigationPage;
         const to = new URL(path, location.href).pathname;
-        if (!from || from === to || !document.startViewTransition ||
-            matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        if (!from || from === to || !canAnimate()) {
             navigate();
             return;
         }
@@ -58,8 +60,10 @@
             root.classList.add(deckClass);
         };
         let navigated = false;
+        let cancelled = false;
+        let finishUpdate;
         const navigateOnce = () => {
-            if (navigated) return;
+            if (navigated || cancelled) return;
             navigated = true;
             navigate();
         };
@@ -72,9 +76,14 @@
             if (launchCard) nameDeck(launchCard);
 
             const transition = document.startViewTransition(() => new Promise((resolve) => {
+                if (cancelled) {
+                    resolve();
+                    return;
+                }
                 const finish = () => {
                     observer.disconnect();
                     clearTimeout(timeout);
+                    finishUpdate = null;
                     resolve();
                 };
                 const findPage = () => {
@@ -82,18 +91,27 @@
                         `${pageSelector}[data-navigation-page="${CSS.escape(to)}"]`,
                     );
                     if (!incomingPage) return;
+                    if (savedScroll) {
+                        // The browser pauses animation frames before capturing the incoming page.
+                        const [left, top] = savedScroll;
+                        window.scrollTo({ left, top, behavior: "instant" });
+                    }
 
                     const landingCard = to === "/" ? findCard(incomingPage, from) : null;
                     const section = from.split("/", 2).join("/");
                     const landingAnchor = to === "/" ? findHeaderAnchor(section) :
                         incomingPage.querySelector(anchorSelector(from));
-                    const incomingPanel = returning ? landingCard ?? landingAnchor ?? incomingPage : incomingPage;
+                    const anchor = landingCard ?? landingAnchor;
+                    const useAnchor = returning && anchor && (!savedScroll || isVisible(anchor));
+                    const incomingPanel = useAnchor ? anchor : incomingPage;
                     if (incomingPanel !== incomingPage) {
-                        incomingPanel.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+                        if (!savedScroll) {
+                            incomingPanel.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+                        }
                         nameElement(incomingPage, sceneName);
                     }
                     nameElement(incomingPanel, panelName);
-                    if (landingCard) nameDeck(landingCard);
+                    if (incomingPanel === landingCard) nameDeck(landingCard);
                     finish();
                 };
                 const observer = new MutationObserver(findPage);
@@ -105,16 +123,44 @@
                     transition.skipTransition();
                     finish();
                 }, 450);
+                finishUpdate = finish;
                 navigateOnce();
                 findPage();
             }));
+            stopActiveTransition = () => {
+                cancelled = true;
+                if (!navigated) blocked?.();
+                transition.skipTransition();
+                finishUpdate?.();
+            };
             transition.ready.catch(() => {});
             await transition.finished;
         } catch {
             navigateOnce();
         } finally {
+            stopActiveTransition = null;
             root.classList.remove(activeClass, returnClass, deckClass);
             for (const [element, name] of namedElements) element.style.viewTransitionName = name;
         }
     };
+
+    window.addEventListener("popstate", (event) => {
+        if (!event.isTrusted) return;
+        if (stopActiveTransition) {
+            stopActiveTransition();
+            return;
+        }
+
+        const from = document.querySelector(pageSelector)?.dataset.navigationPage;
+        const to = location.pathname;
+        if (!from || from === to || to === "/login" || event.hasUAVisualTransition || !canAnimate()) return;
+        const savedScroll = event.state;
+        if (!Array.isArray(savedScroll) || savedScroll.length !== 2 || !savedScroll.every(Number.isFinite)) return;
+
+        // Let Dioxus handle the original history state after the browser captures the outgoing page.
+        event.stopImmediatePropagation();
+        void window.lavemillNavigate(location.href, () => {
+            window.dispatchEvent(new PopStateEvent("popstate", { state: event.state }));
+        }, { savedScroll });
+    }, { capture: true });
 })();
