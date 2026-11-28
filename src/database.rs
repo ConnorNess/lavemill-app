@@ -21,6 +21,9 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (8, include_str!("migrations/008_activity_profile_links.sql")),
     (9, include_str!("migrations/009_recipes.sql")),
     (10, include_str!("migrations/010_recipe_ids.sql")),
+    (11, include_str!("migrations/011_stable_todo_ids.sql")),
+    (12, include_str!("migrations/012_retired_todo_series.sql")),
+    (13, include_str!("migrations/013_todo_miss_retention.sql")),
 ];
 
 pub fn initialize(path: &Path) -> Result<()> {
@@ -140,6 +143,48 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn todo_miss_migration_preserves_only_the_latest_miss_per_series() {
+        let mut db = Connection::open_in_memory().unwrap();
+        db.pragma_update(None, "foreign_keys", true).unwrap();
+        migrate(&mut db, &MIGRATIONS[..12]).unwrap();
+        db.execute_batch(
+            "INSERT INTO users VALUES (1, 'member', 'Household', 'Member', 'unused', 0);
+             INSERT INTO todo_series (id, frequency, first_due)
+             VALUES (1, 'weekly', '2026-11-02'), (2, 'daily', '2026-11-15');
+             INSERT INTO todos (id, title, due, reporter_id, series_id, next_due, status) VALUES
+                 (3, 'Weekly chore', '2026-11-09', 1, 1, '2026-11-16', 'failed'),
+                 (4, 'Weekly chore', '2026-11-02', 1, 1, '2026-11-09', 'failed'),
+                 (5, 'Weekly chore', '2026-11-16', 1, 1, '2026-11-23', 'open'),
+                 (6, 'Daily chore', '2026-11-15', 1, 2, '2026-11-16', 'failed'),
+                 (7, 'One-off', '2026-11-16', 1, NULL, NULL, 'failed');
+             INSERT INTO todos (id, title, due, reporter_id, status, completed_by, completed_at)
+             VALUES (8, 'Done', '2026-11-09', 1, 'completed', 1, 42);",
+        )
+        .unwrap();
+        migrate(&mut db, MIGRATIONS).unwrap();
+        let mut statement = db
+            .prepare("SELECT id, missed_on FROM todos ORDER BY id")
+            .unwrap();
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            [
+                (3, Some("2026-11-16".into())),
+                (5, None),
+                (6, Some("2026-11-16".into())),
+                (7, Some("2026-11-16".into())),
+                (8, None),
+            ]
+        );
+    }
 
     #[test]
     fn migrations_upgrade_once_and_preserve_data() {

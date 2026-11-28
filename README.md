@@ -16,6 +16,9 @@ Use http://localhost:8080/login or http://127.0.0.1:8080/login.
 Set `LAVEMILL_PORT` to change the port.
 The first build takes a while. Source edits reload automatically.
 To-dos use the household time zone, set with `LAVEMILL_TIME_ZONE` (default `Europe/London`).
+Each recurring to-do keeps only its latest miss. A miss expires seven household
+calendar days after the next occurrence was due. The app clears expired misses
+the next time someone loads Home or reads or updates To-dos.
 Shopping is shared across signed-in household members. Refresh to see changes
 from other devices. The app deletes items completed at least seven days ago the
 next time someone loads Home or reads or updates the shopping list.

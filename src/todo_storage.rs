@@ -1,5 +1,5 @@
 use crate::accounts::database_error;
-use crate::todos::{Change, Member, Repeat, Task, Tasks};
+use crate::todos::{Change, Member, Recurrence, Repeat, Task, Tasks};
 use chrono::{Datelike, Days, Months, NaiveDate, Utc};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
@@ -25,15 +25,23 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
             "SELECT t.id, t.title, t.description, t.due, t.assignee_id,
                 reporter.first_name || ' ' || reporter.last_name,
                 assignee.first_name || ' ' || assignee.last_name, assignee.first_name, t.status,
-                t.status = 'completed' AND (t.next_due IS NULL OR t.next_due > ?1)
+                t.status = 'completed' AND COALESCE(s.retired, 0) = 0 AND (t.next_due IS NULL OR (
+                    t.next_due > ?1 AND EXISTS (
+                        SELECT 1 FROM todos successor
+                        WHERE successor.series_id = t.series_id AND successor.due = t.next_due
+                    )
+                )), s.frequency, s.usual_assignee_id
          FROM todos t
          JOIN users reporter ON reporter.id = t.reporter_id
          LEFT JOIN users assignee ON assignee.id = t.assignee_id
+         LEFT JOIN todo_series s ON s.id = t.series_id
          ORDER BY t.due, t.id",
         )
         .map_err(database_error)?;
     let tasks = statement
         .query_map([&today], |row| {
+            let frequency: Option<String> = row.get(10)?;
+            let usual_assignee_id = row.get(11)?;
             Ok(Task {
                 id: row.get(0)?,
                 title: row.get(1)?,
@@ -45,6 +53,10 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
                 assignee_first_name: row.get(7)?,
                 status: row.get(8)?,
                 can_reopen: row.get(9)?,
+                recurrence: frequency.map(|value| Recurrence {
+                    frequency: Repeat::from_frequency(&value),
+                    usual_assignee_id,
+                }),
             })
         })
         .map_err(database_error)?
@@ -119,12 +131,31 @@ fn apply_change(
                 },
             );
         }
+        Change::EditRepeat {
+            id,
+            title,
+            description,
+            due,
+            assignee,
+            repeat,
+        } => {
+            return edit_repeat(
+                db,
+                today,
+                id,
+                NewTask {
+                    title,
+                    description,
+                    due,
+                    assignee,
+                    repeat,
+                },
+            );
+        }
+        Change::DeleteRepeat { id } => return delete_repeat(db, id),
         Change::Rename { id, title } => db.execute(
             "UPDATE todos SET title = ?2
-             WHERE status = 'open' AND (id = ?1 OR EXISTS (
-                 SELECT 1 FROM todos AS renamed WHERE renamed.id = ?1 AND renamed.status = 'open'
-                 AND renamed.series_id = todos.series_id AND renamed.due < todos.due
-             ))",
+             WHERE id = ?1 AND status = 'open' AND series_id IS NULL",
             params![id, validate_title(&title)?],
         ),
         Change::Describe { id, description } => db.execute(
@@ -140,9 +171,16 @@ fn apply_change(
         }
         Change::Complete { id } => return complete_task(db, actor, id),
         Change::Reopen { id } => db.execute(
-            "UPDATE todos SET status = 'open', assignee_id = previous_assignee_id,
+            "UPDATE todos AS t SET status = 'open', assignee_id = previous_assignee_id,
                 previous_assignee_id = NULL, completed_by = NULL, completed_at = NULL
-             WHERE id = ?1 AND status = 'completed' AND (next_due IS NULL OR next_due > ?2)",
+             WHERE id = ?1 AND status = 'completed'
+             AND NOT EXISTS (SELECT 1 FROM todo_series WHERE id = t.series_id AND retired = 1)
+             AND (next_due IS NULL OR (
+                next_due > ?2 AND EXISTS (
+                    SELECT 1 FROM todos successor
+                    WHERE successor.series_id = t.series_id AND successor.due = t.next_due
+                )
+             ))",
             params![id, today],
         ),
     }
@@ -172,12 +210,7 @@ fn create_task(
         repeat,
     } = task;
     let title = validate_title(&title)?;
-    let date = due
-        .parse::<NaiveDate>()
-        .map_err(|_| "Choose a valid due date.")?;
-    if due.len() != 10 || due.starts_with("0000") || date.to_string() != due {
-        return Err("Choose a valid due date.");
-    }
+    let date = validate_due(&due)?;
     validate_assignee(db, assignee)?;
     let (series, next_due) = if let Some(frequency) = frequency(repeat) {
         let next_due = next_date(frequency, date, date)
@@ -211,6 +244,104 @@ fn create_task(
     catch_up(db, today)
 }
 
+fn edit_repeat(db: &Connection, today: &str, id: i64, task: NewTask) -> Result<(), &'static str> {
+    let title = validate_title(&task.title)?;
+    let due = validate_due(&task.due)?;
+    validate_assignee(db, task.assignee)?;
+    let frequency = frequency(task.repeat).ok_or("Choose a repeat frequency.")?;
+    let (series_id, old_due, old_frequency): (i64, String, String) = db
+        .query_row(
+            "SELECT s.id, t.due, s.frequency FROM todos t JOIN todo_series s ON s.id = t.series_id
+             WHERE t.id = ?1 AND t.status = 'open' AND s.retired = 0",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(database_error)?
+        .ok_or("This task has changed. Refresh and try again.")?;
+
+    if old_due != task.due || old_frequency != frequency {
+        let overlaps_history = db
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM todos
+                 WHERE series_id = ?1 AND status != 'open' AND due >= ?2)",
+                params![series_id, task.due],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(database_error)?;
+        if overlaps_history {
+            return Err("Choose a due date after the last completed or missed occurrence.");
+        }
+        let following =
+            next_date(frequency, due, due).ok_or("Choose an earlier due date for this repeat.")?;
+        db.execute(
+            "DELETE FROM todos WHERE series_id = ?1 AND status = 'open' AND id != ?2",
+            params![series_id, id],
+        )
+        .map_err(database_error)?;
+        db.execute(
+            "UPDATE todos SET due = ?2, next_due = ?3 WHERE id = ?1",
+            params![id, task.due, following.to_string()],
+        )
+        .map_err(database_error)?;
+        db.execute(
+            "UPDATE todo_series SET frequency = ?2, first_due = ?3 WHERE id = ?1",
+            params![series_id, frequency, task.due],
+        )
+        .map_err(database_error)?;
+    }
+    db.execute(
+        "UPDATE todo_series SET usual_assignee_id = ?2 WHERE id = ?1",
+        params![series_id, task.assignee],
+    )
+    .map_err(database_error)?;
+    db.execute(
+        "UPDATE todos SET title = ?2, description = NULLIF(?3, ''), assignee_id = ?4
+         WHERE series_id = ?1 AND status = 'open'",
+        params![series_id, title, task.description.trim(), task.assignee],
+    )
+    .map_err(database_error)?;
+    catch_up(db, today)
+}
+
+fn delete_repeat(db: &Connection, id: i64) -> Result<(), &'static str> {
+    let series_id: i64 = db
+        .query_row(
+            "UPDATE todo_series SET retired = 1
+             WHERE retired = 0 AND id = (
+                SELECT series_id FROM todos WHERE id = ?1 AND status = 'open'
+             ) RETURNING id",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?
+        .ok_or("This task has changed. Refresh and try again.")?;
+    db.execute(
+        "DELETE FROM todos WHERE series_id = ?1 AND status = 'open'",
+        [series_id],
+    )
+    .map_err(database_error)?;
+    db.execute(
+        "DELETE FROM todo_series WHERE id = ?1 AND NOT EXISTS (
+            SELECT 1 FROM todos WHERE series_id = ?1
+        )",
+        [series_id],
+    )
+    .map_err(database_error)?;
+    Ok(())
+}
+
+fn validate_due(due: &str) -> Result<NaiveDate, &'static str> {
+    let date = due
+        .parse::<NaiveDate>()
+        .map_err(|_| "Choose a valid due date.")?;
+    if due.len() != 10 || due.starts_with("0000") || date.to_string() != due {
+        return Err("Choose a valid due date.");
+    }
+    Ok(date)
+}
+
 fn validate_title(title: &str) -> Result<&str, &'static str> {
     let title = title.trim();
     if title.is_empty() {
@@ -220,16 +351,25 @@ fn validate_title(title: &str) -> Result<&str, &'static str> {
 }
 
 fn complete_task(db: &Connection, actor: i64, id: i64) -> Result<(), &'static str> {
-    let changed = db.execute(
+    let changed = db
+        .execute(
             "UPDATE todos SET
-                 previous_assignee_id = CASE WHEN status = 'open' THEN assignee_id ELSE previous_assignee_id END,
-                 assignee_id = CASE WHEN status = 'open' THEN ?2 ELSE assignee_id END,
-                 completed_by = COALESCE(completed_by, ?2),
-                 completed_at = COALESCE(completed_at, unixepoch()), status = 'completed'
-             WHERE id = ?1 AND status IN ('open', 'completed')",
+                 previous_assignee_id = assignee_id, assignee_id = ?2,
+                 completed_by = ?2, completed_at = unixepoch(), status = 'completed'
+             WHERE id = ?1 AND status = 'open'",
             params![id, actor],
-    ).map_err(database_error)?;
-    ensure_task_changed(changed)?;
+        )
+        .map_err(database_error)?;
+    if changed == 0 {
+        let already_complete = db
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM todos WHERE id = ?1 AND status = 'completed')",
+                [id],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(database_error)?;
+        return ensure_task_changed(usize::from(already_complete));
+    }
     create_successor(db, id)
 }
 
@@ -241,12 +381,7 @@ fn ensure_task_changed(changed: usize) -> Result<(), &'static str> {
 }
 
 fn frequency(repeat: Repeat) -> Option<&'static str> {
-    match repeat {
-        Repeat::Once => None,
-        Repeat::Daily => Some("daily"),
-        Repeat::Weekly => Some("weekly"),
-        Repeat::Monthly => Some("monthly"),
-    }
+    (repeat != Repeat::Once).then(|| repeat.value())
 }
 
 fn next_date(frequency: &str, first: NaiveDate, current: NaiveDate) -> Option<NaiveDate> {
@@ -266,7 +401,8 @@ fn create_successor(db: &Connection, id: i64) -> Result<(), &'static str> {
     let schedule: Option<(String, String, String)> = db
         .query_row(
             "SELECT s.frequency, s.first_due, t.next_due FROM todos t
-         JOIN todo_series s ON s.id = t.series_id WHERE t.id = ?1 AND t.next_due IS NOT NULL",
+         JOIN todo_series s ON s.id = t.series_id
+         WHERE t.id = ?1 AND t.next_due IS NOT NULL AND s.retired = 0",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
@@ -292,19 +428,60 @@ fn create_successor(db: &Connection, id: i64) -> Result<(), &'static str> {
 }
 
 fn catch_up(db: &Connection, today: &str) -> Result<(), &'static str> {
-    let mut overdue = db.prepare(
-        "SELECT id FROM todos WHERE status = 'open' AND next_due <= ?1 ORDER BY next_due, id LIMIT 1",
-    ).map_err(database_error)?;
-    let mut fail = db
-        .prepare("UPDATE todos SET status = 'failed' WHERE id = ?1")
+    let mut overdue = db
+        .prepare(
+            "SELECT id, series_id, due FROM todos
+         WHERE status = 'open' AND next_due <= ?1 ORDER BY next_due, id LIMIT 1",
+        )
         .map_err(database_error)?;
-    while let Some(id) = overdue
-        .query_row([today], |row| row.get::<_, i64>(0))
+    let mut discard_older_miss = db
+        .prepare("DELETE FROM todos WHERE status = 'failed' AND series_id = ?1 AND due < ?2")
+        .map_err(database_error)?;
+    let mut fail = db
+        .prepare(
+            "UPDATE todos AS missed SET status = 'failed', missed_on = next_due
+             WHERE id = ?1 AND next_due > date(?2, '-7 days') AND NOT EXISTS (
+                SELECT 1 FROM todos AS retained
+                WHERE retained.status = 'failed' AND retained.series_id = missed.series_id
+             )",
+        )
+        .map_err(database_error)?;
+    let mut discard = db
+        .prepare("DELETE FROM todos WHERE id = ?1")
+        .map_err(database_error)?;
+    while let Some((id, series_id, due)) = overdue
+        .query_row([today], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .optional()
         .map_err(database_error)?
     {
-        fail.execute([id]).map_err(database_error)?;
         create_successor(db, id)?;
+        discard_older_miss
+            .execute(params![series_id, due])
+            .map_err(database_error)?;
+        if fail.execute(params![id, today]).map_err(database_error)? == 0 {
+            discard.execute([id]).map_err(database_error)?;
+        }
+    }
+    let expired = db
+        .execute(
+            "DELETE FROM todos WHERE status = 'failed' AND missed_on <= date(?1, '-7 days')",
+            [today],
+        )
+        .map_err(database_error)?;
+    if expired > 0 {
+        db.execute(
+            "DELETE FROM todo_series WHERE retired = 1 AND NOT EXISTS (
+                SELECT 1 FROM todos WHERE series_id = todo_series.id
+            )",
+            [],
+        )
+        .map_err(database_error)?;
     }
     Ok(())
 }
@@ -443,14 +620,19 @@ mod tests {
         let after_downtime = "2026-12-21".parse().unwrap();
         let tasks = list(&mut db, after_downtime).unwrap().tasks;
         let status: Vec<_> = tasks.iter().map(|task| task.status.as_str()).collect();
-        assert_eq!(status, ["failed", "completed", "failed", "failed", "open"]);
-        assert_eq!(tasks[4].due, "2026-12-21");
+        assert_eq!(status, ["completed", "failed", "open"]);
+        assert_eq!(tasks[1].due, "2026-12-14");
+        assert_eq!(tasks[2].due, "2026-12-21");
         assert!(apply(&mut db, after_downtime, 2, Change::Reopen { id: 2 }).is_err());
-        assert_eq!(list(&mut db, after_downtime).unwrap().tasks.len(), 5);
+        apply(&mut db, after_downtime, 2, Change::Complete { id: 2 }).unwrap();
+        assert!(
+            list(&mut db, after_downtime).unwrap().tasks == tasks,
+            "a completion retry should leave the current occurrence and retained history unchanged"
+        );
     }
 
     #[test]
-    fn renames_open_occurrences_and_preserves_history() {
+    fn edits_open_repeats_and_preserves_history_when_rescheduling() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("test.sqlite");
         crate::database::initialize(&path).unwrap();
@@ -476,25 +658,61 @@ mod tests {
         .unwrap();
         apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
         apply(&mut db, today, 1, Change::Reopen { id: 1 }).unwrap();
-        let rename = |id, title: &str| Change::Rename {
+        let edit = |id, title: &str, due: &str, repeat| Change::EditRepeat {
             id,
             title: title.into(),
+            description: "Bring a bucket".into(),
+            due: due.into(),
+            assignee: None,
+            repeat,
         };
 
         assert_eq!(
-            apply(&mut db, today, 1, rename(1, " \t ")),
+            apply(
+                &mut db,
+                today,
+                1,
+                edit(1, " \t ", "2026-11-23", Repeat::Weekly)
+            ),
             Err("Enter a task title.")
         );
-        apply(&mut db, today, 1, rename(1, "  Clean the coop  ")).unwrap();
+        apply(
+            &mut db,
+            today,
+            1,
+            edit(1, "  Clean the coop  ", "2026-11-23", Repeat::Weekly),
+        )
+        .unwrap();
         let tasks = list(&mut db, today).unwrap().tasks;
         assert_eq!(tasks[0].title, "Clean the coop");
         assert_eq!(tasks[1].title, "Clean the coop");
-        assert_eq!(tasks[0].description.as_deref(), Some("Bring gloves"));
-        assert_eq!(tasks[0].assignee_id, Some(1));
+        assert_eq!(tasks[0].description.as_deref(), Some("Bring a bucket"));
+        assert_eq!(tasks[0].assignee_id, None);
 
         apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
-        assert!(apply(&mut db, today, 1, rename(1, "Past task")).is_err());
-        apply(&mut db, today, 1, rename(2, "Sweep the coop")).unwrap();
+        assert!(apply(
+            &mut db,
+            today,
+            1,
+            edit(1, "Past task", "2026-11-30", Repeat::Weekly)
+        )
+        .is_err());
+        assert!(apply(
+            &mut db,
+            today,
+            1,
+            edit(2, "Past task", "2026-11-23", Repeat::Weekly)
+        )
+        .is_err());
+        apply(
+            &mut db,
+            today,
+            1,
+            edit(2, "Sweep the coop", "2027-01-31", Repeat::Monthly),
+        )
+        .unwrap();
+        assert!(apply(&mut db, today, 1, Change::Reopen { id: 1 }).is_err());
+        apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
         apply(&mut db, today, 1, Change::Complete { id: 2 }).unwrap();
         let mut reopened = crate::database::open(&path).unwrap();
         let tasks = list(&mut reopened, today).unwrap().tasks;
@@ -503,6 +721,142 @@ mod tests {
             titles,
             ["Clean the coop", "Sweep the coop", "Sweep the coop"]
         );
+        assert!(!tasks[0].can_reopen);
+        assert_eq!(tasks[0].due, "2026-11-23");
+        assert_eq!(tasks[1].due, "2027-01-31");
+        assert_eq!(tasks[2].due, "2027-02-28");
+        assert_eq!(tasks[2].assignee_id, None);
+        // Editing details on February's occurrence keeps the January anchor.
+        apply(
+            &mut reopened,
+            today,
+            1,
+            edit(tasks[2].id, "Sweep the coop", "2027-02-28", Repeat::Monthly),
+        )
+        .unwrap();
+        apply(
+            &mut reopened,
+            today,
+            1,
+            Change::Complete { id: tasks[2].id },
+        )
+        .unwrap();
+        assert_eq!(
+            list(&mut reopened, today).unwrap().tasks[3].due,
+            "2027-03-31"
+        );
+    }
+
+    #[test]
+    fn deleting_a_repeat_removes_open_tasks_and_keeps_history_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("test.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        db.execute(
+            "INSERT INTO users VALUES (1, 'alex', 'Alex', 'One', 'test', 0)",
+            [],
+        )
+        .unwrap();
+        let today = "2026-11-23".parse().unwrap();
+        let create = |repeat| Change::Create {
+            title: "Put the bins out".into(),
+            description: String::new(),
+            due: "2026-11-23".into(),
+            assignee: Some(1),
+            repeat,
+        };
+        apply(&mut db, today, 1, create(Repeat::Weekly)).unwrap();
+        apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
+        apply(&mut db, today, 1, Change::Complete { id: 2 }).unwrap();
+        apply(&mut db, today, 1, Change::Reopen { id: 2 }).unwrap();
+        assert_eq!(list(&mut db, today).unwrap().tasks.len(), 3);
+
+        apply(&mut db, today, 1, Change::DeleteRepeat { id: 2 }).unwrap();
+        let tasks = list(&mut db, today).unwrap().tasks;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, 1);
+        assert_eq!(tasks[0].status, "completed");
+        assert!(!tasks[0].can_reopen);
+        assert!(apply(&mut db, today, 1, Change::Reopen { id: 1 }).is_err());
+        apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
+
+        let later = "2027-01-01".parse().unwrap();
+        assert_eq!(list(&mut db, later).unwrap().tasks.len(), 1);
+        apply(&mut db, today, 1, create(Repeat::Once)).unwrap();
+        assert!(apply(&mut db, today, 1, Change::Complete { id: 3 }).is_err());
+        let tasks = list(&mut db, later).unwrap().tasks;
+        let open = tasks.iter().find(|task| task.status == "open").unwrap();
+        assert!(open.id > 3);
+        assert!(open.recurrence.is_none());
+        assert!(apply(&mut db, today, 1, Change::DeleteRepeat { id: open.id }).is_err());
+    }
+
+    #[test]
+    fn catch_up_keeps_only_the_latest_miss_and_expires_it_on_day_seven() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("test.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        db.execute(
+            "INSERT INTO users VALUES (1, 'alex', 'Alex', 'One', 'test', 0)",
+            [],
+        )
+        .unwrap();
+        let start = "2026-11-23".parse().unwrap();
+        let create = |title: &str, repeat| Change::Create {
+            title: title.into(),
+            description: String::new(),
+            due: "2026-11-23".into(),
+            assignee: None,
+            repeat,
+        };
+        apply(&mut db, start, 1, create("Daily chore", Repeat::Daily)).unwrap();
+        apply(&mut db, start, 1, create("Monthly chore", Repeat::Monthly)).unwrap();
+
+        let thursday = "2026-11-26".parse().unwrap();
+        let tasks = list(&mut db, thursday).unwrap().tasks;
+        let misses: Vec<_> = tasks
+            .iter()
+            .filter(|task| task.status == "failed")
+            .collect();
+        assert_eq!(misses.len(), 1);
+        assert_eq!(misses[0].due, "2026-11-25");
+        let daily_open = tasks
+            .iter()
+            .find(|task| task.title == "Daily chore" && task.status == "open")
+            .unwrap();
+        apply(
+            &mut db,
+            thursday,
+            1,
+            Change::DeleteRepeat { id: daily_open.id },
+        )
+        .unwrap();
+
+        // There was no access on December 23 when the monthly task became missed.
+        let day_six = "2026-12-29".parse().unwrap();
+        let tasks = list(&mut db, day_six).unwrap().tasks;
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].status, "failed");
+        assert_eq!(tasks[0].due, "2026-11-23");
+        assert_eq!(tasks[1].due, "2026-12-23");
+        apply(
+            &mut db,
+            day_six,
+            1,
+            Change::DeleteRepeat { id: tasks[1].id },
+        )
+        .unwrap();
+        assert_eq!(list(&mut db, day_six).unwrap().tasks.len(), 1);
+
+        let day_seven = "2026-12-30".parse().unwrap();
+        assert!(apply(&mut db, day_seven, 1, Change::Complete { id: tasks[0].id }).is_err());
+        let remaining: i64 = db
+            .query_row("SELECT count(*) FROM todos", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0);
+        assert!(list(&mut db, day_seven).unwrap().tasks.is_empty());
     }
 
     #[test]

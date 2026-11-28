@@ -692,6 +692,13 @@ body:has(.todos-page) { min-height: 0; }
 .task-description { margin: 0; white-space: pre-wrap; }
 .task-edit-form { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; margin-block: 4px; }
 .task-edit-form .todo-field { flex: 1 1 10rem; }
+.repeat-edit-form { display: grid; gap: 8px; margin-block: 12px 4px; }
+.repeat-edit-form label { font-size: 0.875rem; font-weight: 600; }
+.repeat-edit-form .row-note { margin: 0; }
+.repeat-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 8px; }
+.repeat-delete-confirmation { margin-block-start: 12px; }
+.repeat-delete-confirmation p { margin: 0; }
+.todos-page .repeat-delete-button { color: #9a3c2b; }
 .task-edit-actions { display: flex; gap: 4px; margin-inline-start: auto; }
 .todos-page .task-icon-button {
     display: grid;

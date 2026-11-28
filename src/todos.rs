@@ -14,6 +14,13 @@ pub(crate) struct Task {
     pub assignee_first_name: Option<String>,
     pub status: String,
     pub can_reopen: bool,
+    pub recurrence: Option<Recurrence>,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub(crate) struct Recurrence {
+    pub frequency: Repeat,
+    pub usual_assignee_id: Option<i64>,
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
@@ -29,7 +36,7 @@ pub(crate) struct Tasks {
     pub members: Vec<Member>,
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize, PartialEq, Serialize)]
 pub(crate) enum Repeat {
     Once,
     Daily,
@@ -38,12 +45,30 @@ pub(crate) enum Repeat {
 }
 
 impl Repeat {
-    fn value(self) -> &'static str {
+    pub(crate) fn value(self) -> &'static str {
         match self {
             Self::Once => "once",
             Self::Daily => "daily",
             Self::Weekly => "weekly",
             Self::Monthly => "monthly",
+        }
+    }
+
+    pub(crate) fn from_frequency(value: &str) -> Self {
+        match value {
+            "daily" => Self::Daily,
+            "weekly" => Self::Weekly,
+            "monthly" => Self::Monthly,
+            _ => Self::Once,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Once => "Once",
+            Self::Daily => "Daily",
+            Self::Weekly => "Weekly",
+            Self::Monthly => "Monthly",
         }
     }
 }
@@ -56,6 +81,17 @@ pub(crate) enum Change {
         due: String,
         assignee: Option<i64>,
         repeat: Repeat,
+    },
+    EditRepeat {
+        id: i64,
+        title: String,
+        description: String,
+        due: String,
+        assignee: Option<i64>,
+        repeat: Repeat,
+    },
+    DeleteRepeat {
+        id: i64,
     },
     Rename {
         id: i64,
@@ -342,6 +378,9 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
     let mut error = use_signal(String::new);
     let mut pending = use_signal(|| false);
     let mut draft = use_signal(|| None::<TaskDraft>);
+    let mut editing_repeat = use_signal(|| false);
+    let mut confirming_delete = use_signal(|| false);
+    let mut restore_delete_focus = use_signal(|| false);
     let mut focus_after_edit = use_signal(|| None::<TaskField>);
     let id = task.id;
     let initial_title = task.title.clone();
@@ -367,6 +406,7 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                     if editing {
                         finish_edit.call(());
                     }
+                    editing_repeat.set(false);
                     data.restart();
                 }
                 Err(message) => error.set(message),
@@ -413,7 +453,8 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
             "data-task-transition-id": "{id}",
             if open || completed {
                 label { class: "task-check-target",
-                    input { r#type: "checkbox", checked: completed, disabled: pending() || (completed && !task.can_reopen),
+                    input { r#type: "checkbox", checked: completed,
+                    disabled: pending() || editing_repeat() || confirming_delete() || (completed && !task.can_reopen),
                     aria_label: if completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
                     onchange: move |event| {
                         submit.call(if event.checked() { Change::Complete { id } } else { Change::Reopen { id } });
@@ -429,7 +470,7 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                     }
                 } else {
                     div { class: "task-edit-line",
-                        if open {
+                        if open && task.recurrence.is_none() {
                             TaskPencil { label: format!("Edit title of {}", task.title),
                                 disabled: pending() || active_draft.is_some(),
                                 restore_focus: focus_after_edit() == Some(TaskField::Title),
@@ -444,9 +485,9 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                         on_change: move |value| draft.set(Some(TaskDraft { field: TaskField::Description, value })),
                         on_save: save_edit, on_cancel: cancel_edit,
                     }
-                } else if open || task.description.is_some() {
+                } else if (open && task.recurrence.is_none()) || task.description.is_some() {
                     div { class: "task-edit-line task-description-line",
-                        if open {
+                        if open && task.recurrence.is_none() {
                             TaskPencil { label: format!("Edit description of {}", task.title),
                                 disabled: pending() || active_draft.is_some(),
                                 restore_focus: focus_after_edit() == Some(TaskField::Description),
@@ -462,6 +503,62 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                 }
                 time { class: "row-note", datetime: "{task.due}", "Due {task.due}" }
                 span { class: "row-note", "Reported by {task.reporter}" }
+                if let Some(recurrence) = task.recurrence.as_ref().filter(|_| open) {
+                    span { class: "row-note", "Repeats {recurrence.frequency.label().to_lowercase()}" }
+                    if editing_repeat() {
+                        EditRepeatForm {
+                            task: task.clone(), recurrence: recurrence.clone(), members: members.clone(),
+                            pending: pending(), on_save: submit,
+                            on_cancel: move |_| {
+                                error.set(String::new());
+                                editing_repeat.set(false);
+                            },
+                        }
+                    } else if confirming_delete() {
+                        div { class: "repeat-delete-confirmation", role: "group", aria_label: "Confirm repeat deletion",
+                            p { "Delete the repeat for “{task.title}”? This removes its open tasks and stops future occurrences." }
+                            div { class: "repeat-actions",
+                                button { class: "secondary-button", r#type: "button", disabled: pending(),
+                                    onmounted: focus_task_control,
+                                    onclick: move |_| {
+                                        error.set(String::new());
+                                        restore_delete_focus.set(true);
+                                        confirming_delete.set(false);
+                                    },
+                                    "Cancel"
+                                }
+                                button { class: "secondary-button repeat-delete-button", r#type: "button", disabled: pending(),
+                                    onclick: move |_| submit.call(Change::DeleteRepeat { id }), "Delete repeat"
+                                }
+                            }
+                        }
+                    } else {
+                        div { class: "repeat-actions",
+                            button { class: "secondary-button", r#type: "button", disabled: pending(),
+                                aria_label: "Edit repeat for {task.title}",
+                                onclick: move |_| {
+                                    error.set(String::new());
+                                    editing_repeat.set(true);
+                                },
+                                "Edit repeat"
+                            }
+                            button { class: "secondary-button repeat-delete-button", r#type: "button", disabled: pending(),
+                                aria_label: "Delete repeat for {task.title}",
+                                onmounted: move |event| async move {
+                                    if restore_delete_focus() {
+                                        restore_delete_focus.set(false);
+                                        focus_task_control(event).await;
+                                    }
+                                },
+                                onclick: move |_| {
+                                    error.set(String::new());
+                                    confirming_delete.set(true);
+                                },
+                                "Delete repeat"
+                            }
+                        }
+                    }
+                }
                 if !error().is_empty() { p { class: "form-error", role: "alert", "{error}" } }
             }
             if !open {
@@ -470,12 +567,71 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                     button { class: "undo-button", r#type: "button", disabled: pending(), aria_label: "Undo completion of {task.title}",
                         onclick: move |_| submit.call(Change::Reopen { id }), "Undo" }
                 }
+            } else if task.recurrence.is_some() {
+                span { class: "completed-assignee", {task.assignee.as_deref().unwrap_or("Unassigned")} }
             } else {
                 div { class: "task-assignee-field",
                     MemberSelect { id: format!("task-assignee-{id}"), label: format!("Assign {} to", task.title),
                         value: assignee, members, disabled: pending(),
                         on_change: move |assignee| submit.call(Change::Assign { id, assignee }) }
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn EditRepeatForm(
+    task: Task,
+    recurrence: Recurrence,
+    members: Vec<Member>,
+    pending: bool,
+    on_save: EventHandler<Change>,
+    on_cancel: EventHandler<MouseEvent>,
+) -> Element {
+    let id = task.id;
+    let mut title = use_signal(|| task.title);
+    let mut description = use_signal(|| task.description.unwrap_or_default());
+    let mut due = use_signal(|| task.due);
+    let mut repeat = use_signal(|| recurrence.frequency);
+    let mut assignee = use_signal(|| recurrence.usual_assignee_id);
+    let selected_assignee = assignee().map(|id| id.to_string()).unwrap_or_default();
+    rsx! {
+        form { class: "repeat-edit-form", aria_label: "Edit repeat",
+            onsubmit: move |event| {
+                event.prevent_default();
+                on_save.call(Change::EditRepeat {
+                    id, title: title(), description: description(), due: due(),
+                    assignee: assignee(), repeat: repeat(),
+                });
+            },
+            p { class: "row-note", "Changes apply to open and future occurrences. Changing the schedule starts it from the date below." }
+            label { r#for: "repeat-title-{id}", "Task" }
+            TodoTextField { icon: "tasks",
+                input { id: "repeat-title-{id}", required: true, value: "{title}", disabled: pending,
+                    onmounted: focus_task_control, oninput: move |event| title.set(event.value()) }
+            }
+            label { r#for: "repeat-description-{id}", "Description (optional)" }
+            TodoTextField { icon: "description",
+                textarea { id: "repeat-description-{id}", value: "{description}", disabled: pending,
+                    oninput: move |event| description.set(event.value()) }
+            }
+            label { r#for: "repeat-date-{id}", "Next due date" }
+            span { class: "todo-field",
+                input { id: "repeat-date-{id}", r#type: "date", required: true, min: "0001-01-01",
+                    max: "9999-12-31", value: "{due}", disabled: pending,
+                    oninput: move |event| due.set(event.value()) }
+            }
+            label { r#for: "repeat-frequency-{id}", "Repeat" }
+            RepeatSelect { id: format!("repeat-frequency-{id}"), value: repeat(), disabled: pending,
+                include_once: false, on_change: move |value| repeat.set(value) }
+            label { r#for: "repeat-assignee-{id}", "Usual assignee" }
+            MemberSelect { id: format!("repeat-assignee-{id}"), label: "Usual assignee",
+                value: selected_assignee, members, disabled: pending, on_change: move |value| assignee.set(value) }
+            div { class: "repeat-actions",
+                button { class: "primary-button", r#type: "submit", disabled: pending, "Save repeat" }
+                button { class: "secondary-button", r#type: "button", disabled: pending,
+                    onclick: move |event| on_cancel.call(event), "Cancel" }
             }
         }
     }
@@ -605,6 +761,26 @@ fn TodoTextField(icon: &'static str, children: Element) -> Element {
 }
 
 #[component]
+fn RepeatSelect(
+    id: String,
+    value: Repeat,
+    disabled: bool,
+    include_once: bool,
+    on_change: EventHandler<Repeat>,
+) -> Element {
+    let options = [Repeat::Once, Repeat::Daily, Repeat::Weekly, Repeat::Monthly]
+        .into_iter()
+        .filter(|repeat| include_once || *repeat != Repeat::Once)
+        .map(|repeat| (repeat.value().to_owned(), repeat.label().to_owned()))
+        .collect();
+    rsx! {
+        crate::select_field::SelectField { id, label: "Repeat", value: value.value(), disabled, options,
+            on_change: move |value: String| on_change.call(Repeat::from_frequency(&value)),
+        }
+    }
+}
+
+#[component]
 fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
     let mut data = use_context::<Resource<Result<Tasks, ServerFnError>>>();
     let mut title = use_signal(String::new);
@@ -655,16 +831,8 @@ fn AddTaskForm(today: String, members: Vec<Member>) -> Element {
                     input { id: "new-task-date", name: "due", r#type: "date", required: true, min: "0001-01-01", max: "9999-12-31", value: "{due}", disabled: pending(), oninput: move |event| due.set(event.value()) }
                 }
                 label { r#for: "new-task-repeat", "Repeat" }
-                crate::select_field::SelectField { id: "new-task-repeat", label: "Repeat", value: repeat().value(), disabled: pending(),
-                    options: [("once", "Once"), ("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly")]
-                        .map(|(value, label)| (value.to_owned(), label.to_owned())).to_vec(),
-                    on_change: move |value: String| repeat.set(match value.as_str() {
-                        "daily" => Repeat::Daily,
-                        "weekly" => Repeat::Weekly,
-                        "monthly" => Repeat::Monthly,
-                        _ => Repeat::Once,
-                    }),
-                }
+                RepeatSelect { id: "new-task-repeat", value: repeat(), disabled: pending(),
+                    include_once: true, on_change: move |value| repeat.set(value) }
                 label { r#for: "new-task-assignee", "Assigned to" }
                 MemberSelect { id: "new-task-assignee", label: "Assigned to", value: selected_assignee, members,
                     disabled: pending(), on_change: move |value| assignee.set(value) }
