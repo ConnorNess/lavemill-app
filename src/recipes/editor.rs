@@ -186,7 +186,7 @@ fn EditRecipeContent(id: i64) -> Element {
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
         document::Title { "Lavemill · Edit recipe" }
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipe-edit-id": "{id}",
             Link { class: "recipe-back-link", to: Route::RecipeDetail { id }, "Back to recipe" }
             header { class: "recipe-heading", h1 { "Edit recipe" } }
             match recipe.read().as_ref() {

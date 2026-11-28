@@ -147,6 +147,28 @@ pub(crate) fn RecipeCardLink(id: i64, title: String) -> Element {
 }
 
 #[component]
+pub(crate) fn EditRecipeLink(id: i64) -> Element {
+    let navigator = use_navigator();
+    rsx! {
+        Link {
+            class: "recipe-action recipe-control secondary-button",
+            to: Route::EditRecipe { id },
+            "data-recipe-edit-link-id": "{id}",
+            onclick_only: true,
+            onclick: move |_| {
+                spawn(async move {
+                    if begin_transition("recipe-edit", false, Some(id)).await {
+                        navigator.push(Route::EditRecipe { id });
+                    }
+                });
+            },
+            crate::Icon { kind: "pencil" }
+            "Edit recipe"
+        }
+    }
+}
+
+#[component]
 pub(crate) fn HomeLink() -> Element {
     let navigator = use_navigator();
     let page = match use_route::<Route>() {

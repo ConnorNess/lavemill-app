@@ -10,6 +10,7 @@ if (root.classList.contains(activeClass)) {
 
 const pageKey = CSS.escape(page);
 const recipeKey = recipeId == null ? null : CSS.escape(recipeId);
+const openingRecipeEditor = page === "recipe-edit";
 const findCard = () => document.querySelector(`[data-card-page="${pageKey}"]`)
     ?.closest(".dashboard-card");
 const findHeaderAnchor = () => document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
@@ -19,7 +20,8 @@ let source;
 if (returningHome) {
     source = interiorPage;
 } else if (recipeKey !== null) {
-    source = document.querySelector(`[data-recipe-card-id="${recipeKey}"]`);
+    const anchor = openingRecipeEditor ? "data-recipe-edit-link-id" : "data-recipe-card-id";
+    source = document.querySelector(`[${anchor}="${recipeKey}"]`);
 } else {
     source = openingFromHeader ? findHeaderAnchor() : findCard();
 }
@@ -34,7 +36,8 @@ const viewportWidth = root.clientWidth;
 const viewportHeight = root.clientHeight;
 let destinationPage = `.${pageKey}-page`;
 if (recipeKey !== null) {
-    destinationPage = `[data-recipe-detail-id="${recipeKey}"]`;
+    const destination = openingRecipeEditor ? "data-recipe-edit-id" : "data-recipe-detail-id";
+    destinationPage = `[${destination}="${recipeKey}"]`;
 } else if (page === "recipes") {
     destinationPage = "[data-recipes-index]";
 }
@@ -118,7 +121,7 @@ try {
         const observer = new MutationObserver(findPage);
         observer.observe(document.body, {
             childList: true, subtree: true, attributes: true,
-            attributeFilter: ["data-recipes-index", "data-recipe-detail-id"],
+            attributeFilter: ["data-recipes-index", "data-recipe-detail-id", "data-recipe-edit-id"],
         });
         const timeout = setTimeout(() => {
             transition.skipTransition();

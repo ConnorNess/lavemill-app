@@ -191,17 +191,13 @@ fn RecipeDetailContent(id: i64) -> Element {
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
         main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipe-detail-id": "{id}",
-            Link { class: "recipe-back-link", to: Route::Recipes {}, "All recipes" }
             match recipe.read().as_ref() {
                 Some(Ok(Some(recipe))) => rsx! {
                     document::Title { "Lavemill · {recipe.contents.title}" }
                     header { class: "recipe-heading",
                         h1 { "{recipe.contents.title}" }
                         div { class: "recipe-detail-actions",
-                            Link { class: "recipe-action recipe-control secondary-button", to: Route::EditRecipe { id },
-                                crate::Icon { kind: "pencil" }
-                                "Edit recipe"
-                            }
+                            crate::card_navigation::EditRecipeLink { id }
                             DeleteRecipe { id, revision: recipe.revision, title: recipe.contents.title.clone() }
                         }
                     }
