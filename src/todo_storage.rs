@@ -428,19 +428,60 @@ fn create_successor(db: &Connection, id: i64) -> Result<(), &'static str> {
 }
 
 fn catch_up(db: &Connection, today: &str) -> Result<(), &'static str> {
-    let mut overdue = db.prepare(
-        "SELECT id FROM todos WHERE status = 'open' AND next_due <= ?1 ORDER BY next_due, id LIMIT 1",
-    ).map_err(database_error)?;
-    let mut fail = db
-        .prepare("UPDATE todos SET status = 'failed' WHERE id = ?1")
+    let mut overdue = db
+        .prepare(
+            "SELECT id, series_id, due FROM todos
+         WHERE status = 'open' AND next_due <= ?1 ORDER BY next_due, id LIMIT 1",
+        )
         .map_err(database_error)?;
-    while let Some(id) = overdue
-        .query_row([today], |row| row.get::<_, i64>(0))
+    let mut discard_older_miss = db
+        .prepare("DELETE FROM todos WHERE status = 'failed' AND series_id = ?1 AND due < ?2")
+        .map_err(database_error)?;
+    let mut fail = db
+        .prepare(
+            "UPDATE todos AS missed SET status = 'failed', missed_on = next_due
+             WHERE id = ?1 AND next_due > date(?2, '-7 days') AND NOT EXISTS (
+                SELECT 1 FROM todos AS retained
+                WHERE retained.status = 'failed' AND retained.series_id = missed.series_id
+             )",
+        )
+        .map_err(database_error)?;
+    let mut discard = db
+        .prepare("DELETE FROM todos WHERE id = ?1")
+        .map_err(database_error)?;
+    while let Some((id, series_id, due)) = overdue
+        .query_row([today], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
         .optional()
         .map_err(database_error)?
     {
-        fail.execute([id]).map_err(database_error)?;
         create_successor(db, id)?;
+        discard_older_miss
+            .execute(params![series_id, due])
+            .map_err(database_error)?;
+        if fail.execute(params![id, today]).map_err(database_error)? == 0 {
+            discard.execute([id]).map_err(database_error)?;
+        }
+    }
+    let expired = db
+        .execute(
+            "DELETE FROM todos WHERE status = 'failed' AND missed_on <= date(?1, '-7 days')",
+            [today],
+        )
+        .map_err(database_error)?;
+    if expired > 0 {
+        db.execute(
+            "DELETE FROM todo_series WHERE retired = 1 AND NOT EXISTS (
+                SELECT 1 FROM todos WHERE series_id = todo_series.id
+            )",
+            [],
+        )
+        .map_err(database_error)?;
     }
     Ok(())
 }
@@ -579,10 +620,15 @@ mod tests {
         let after_downtime = "2026-12-21".parse().unwrap();
         let tasks = list(&mut db, after_downtime).unwrap().tasks;
         let status: Vec<_> = tasks.iter().map(|task| task.status.as_str()).collect();
-        assert_eq!(status, ["failed", "completed", "failed", "failed", "open"]);
-        assert_eq!(tasks[4].due, "2026-12-21");
+        assert_eq!(status, ["completed", "failed", "open"]);
+        assert_eq!(tasks[1].due, "2026-12-14");
+        assert_eq!(tasks[2].due, "2026-12-21");
         assert!(apply(&mut db, after_downtime, 2, Change::Reopen { id: 2 }).is_err());
-        assert_eq!(list(&mut db, after_downtime).unwrap().tasks.len(), 5);
+        apply(&mut db, after_downtime, 2, Change::Complete { id: 2 }).unwrap();
+        assert!(
+            list(&mut db, after_downtime).unwrap().tasks == tasks,
+            "a completion retry should leave the current occurrence and retained history unchanged"
+        );
     }
 
     #[test]
@@ -744,6 +790,73 @@ mod tests {
         assert!(open.id > 3);
         assert!(open.recurrence.is_none());
         assert!(apply(&mut db, today, 1, Change::DeleteRepeat { id: open.id }).is_err());
+    }
+
+    #[test]
+    fn catch_up_keeps_only_the_latest_miss_and_expires_it_on_day_seven() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("test.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        db.execute(
+            "INSERT INTO users VALUES (1, 'alex', 'Alex', 'One', 'test', 0)",
+            [],
+        )
+        .unwrap();
+        let start = "2026-11-23".parse().unwrap();
+        let create = |title: &str, repeat| Change::Create {
+            title: title.into(),
+            description: String::new(),
+            due: "2026-11-23".into(),
+            assignee: None,
+            repeat,
+        };
+        apply(&mut db, start, 1, create("Daily chore", Repeat::Daily)).unwrap();
+        apply(&mut db, start, 1, create("Monthly chore", Repeat::Monthly)).unwrap();
+
+        let thursday = "2026-11-26".parse().unwrap();
+        let tasks = list(&mut db, thursday).unwrap().tasks;
+        let misses: Vec<_> = tasks
+            .iter()
+            .filter(|task| task.status == "failed")
+            .collect();
+        assert_eq!(misses.len(), 1);
+        assert_eq!(misses[0].due, "2026-11-25");
+        let daily_open = tasks
+            .iter()
+            .find(|task| task.title == "Daily chore" && task.status == "open")
+            .unwrap();
+        apply(
+            &mut db,
+            thursday,
+            1,
+            Change::DeleteRepeat { id: daily_open.id },
+        )
+        .unwrap();
+
+        // There was no access on December 23 when the monthly task became missed.
+        let day_six = "2026-12-29".parse().unwrap();
+        let tasks = list(&mut db, day_six).unwrap().tasks;
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].status, "failed");
+        assert_eq!(tasks[0].due, "2026-11-23");
+        assert_eq!(tasks[1].due, "2026-12-23");
+        apply(
+            &mut db,
+            day_six,
+            1,
+            Change::DeleteRepeat { id: tasks[1].id },
+        )
+        .unwrap();
+        assert_eq!(list(&mut db, day_six).unwrap().tasks.len(), 1);
+
+        let day_seven = "2026-12-30".parse().unwrap();
+        assert!(apply(&mut db, day_seven, 1, Change::Complete { id: tasks[0].id }).is_err());
+        let remaining: i64 = db
+            .query_row("SELECT count(*) FROM todos", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0);
+        assert!(list(&mut db, day_seven).unwrap().tasks.is_empty());
     }
 
     #[test]
