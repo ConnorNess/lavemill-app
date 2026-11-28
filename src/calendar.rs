@@ -302,6 +302,33 @@ fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
         }
         calendar_view(CalendarViewQuery { view, date })
     }))?;
+    let mut displayed_period = use_signal(|| None::<(bool, String)>);
+    use_effect(move || {
+        let loaded = data.read();
+        let Some(Ok(period)) = loaded.as_ref() else {
+            return;
+        };
+        let current = (period.month, period.date.clone());
+        let previous = displayed_period.peek().clone();
+        if previous.as_ref() == Some(&current) {
+            return;
+        }
+        displayed_period.set(Some(current));
+        if previous.is_some() {
+            document::eval(
+                r#"
+                const grid = document.getElementById("calendar-period-grid");
+                if (grid?.animate && matchMedia("(prefers-reduced-motion: no-preference)").matches) {
+                    const id = "calendar-period-change";
+                    grid.getAnimations().find(animation => animation.id === id)?.cancel();
+                    grid.animate([{ opacity: 0.35 }, { opacity: 1 }], {
+                        id, duration: 180, easing: "ease-out",
+                    });
+                }
+                "#,
+            );
+        }
+    });
     let data = data.read();
     let Some(result) = data.as_ref() else {
         return rsx! {
@@ -354,15 +381,17 @@ fn CalendarPeriod(view: Option<String>, date: Option<String>) -> Element {
         } else if !data.has_shared_calendars {
             p { class: "row-note", "Your household hasn’t shared a calendar yet." }
         }
-        if data.month {
-            MonthGrid {
-                days: data.days.clone(),
-                today: data.today.clone(),
-                selected,
-                on_select: move |day| selected_day.set(Some(day)),
+        div { id: "calendar-period-grid",
+            if data.month {
+                MonthGrid {
+                    days: data.days.clone(),
+                    today: data.today.clone(),
+                    selected,
+                    on_select: move |day| selected_day.set(Some(day)),
+                }
+            } else {
+                WeekGrid { days: data.days.clone(), today: data.today.clone() }
             }
-        } else {
-            WeekGrid { days: data.days.clone(), today: data.today.clone() }
         }
     }
 }
