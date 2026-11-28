@@ -274,7 +274,7 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
             fieldset { disabled: pending(), class: "recipe-editor-fields",
                 label { class: "recipe-title-field surface-panel",
                     "Title"
-                    input { required: true, value: title(), oninput: move |event| title.set(event.value()) }
+                    input { class: "recipe-field", required: true, value: title(), oninput: move |event| title.set(event.value()) }
                 }
                 div { class: "recipe-editor-columns",
                     EditItems { items: ingredients, ingredients: true }
@@ -286,7 +286,7 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
                         Link { to: Route::RecipeDetail { id: target.id }, new_tab: true, "View latest recipe in a new tab" }
                     }
                 }
-                button { class: "primary-button", r#type: "submit", "Save recipe" }
+                button { class: "recipe-control primary-button", r#type: "submit", "Save recipe" }
             }
         }
     }
@@ -330,11 +330,11 @@ fn EditItems(mut items: Signal<Ordered<EditorItem>>, ingredients: bool) -> Eleme
                 }
             }
             div { class: "recipe-editor-actions",
-                button { class: "secondary-button", r#type: "button",
+                button { class: "recipe-control secondary-button", r#type: "button",
                     onclick: move |_| items.write().push(EditorItem::Entry(EntryFields::default())),
                     "Add {item_name}"
                 }
-                button { class: "secondary-button", r#type: "button",
+                button { class: "recipe-control secondary-button", r#type: "button",
                     onclick: move |_| items.write().push(EditorItem::Subsection(SectionFields::blank())),
                     "Add subsection"
                 }
@@ -375,6 +375,7 @@ fn EditSubsection(
         fieldset { class: "recipe-editor-subsection surface-panel", aria_label: "{heading} subsection at position {index + 1}",
             div { class: "recipe-editor-row",
                 input {
+                    class: "recipe-field",
                     required: true,
                     aria_label: "Subsection name",
                     placeholder: "Subsection name",
@@ -414,7 +415,7 @@ fn EditSubsection(
                     },
                 }
             }
-            button { class: "secondary-button", r#type: "button",
+            button { class: "recipe-control secondary-button", r#type: "button",
                 onclick: move |_| {
                     if let Some(section) = subsection_mut(&mut items.write(), section_key) {
                         section.entries.push(EntryFields::default());
@@ -440,16 +441,16 @@ fn EntryRow(
         div { class: "recipe-editor-row",
             if ingredients {
                 div { class: "recipe-editor-ingredient",
-                    input { required: true, aria_label: "Ingredient name", placeholder: "Ingredient name",
+                    input { class: "recipe-field", required: true, aria_label: "Ingredient name", placeholder: "Ingredient name",
                         value: entry.text, oninput: move |event| update.call(EntryChange::Text(event.value())) }
-                    input { aria_label: "Quantity (optional)", placeholder: "Quantity",
+                    input { class: "recipe-field", aria_label: "Quantity (optional)", placeholder: "Quantity",
                         value: entry.detail, oninput: move |event| update.call(EntryChange::Detail(event.value())) }
                 }
             } else {
                 div { class: "recipe-editor-step",
-                    textarea { required: true, rows: 2, aria_label: "Instructions", placeholder: "Instructions",
+                    textarea { class: "recipe-field", required: true, rows: 2, aria_label: "Instructions", placeholder: "Instructions",
                         value: entry.text, oninput: move |event| update.call(EntryChange::Text(event.value())) }
-                    textarea { rows: 1, aria_label: "Note (optional)", placeholder: "Note (optional)",
+                    textarea { class: "recipe-field", rows: 1, aria_label: "Note (optional)", placeholder: "Note (optional)",
                         value: entry.detail, oninput: move |event| update.call(EntryChange::Detail(event.value())) }
                 }
             }
@@ -470,12 +471,12 @@ fn OrderButtons(
     let remove = format!("Remove {label}");
     rsx! {
         div { class: "recipe-order-buttons",
-            button { r#type: "button", aria_label: up.clone(), title: up, disabled: index == 0,
-                onclick: move |_| change.call(OrderAction::Up), "↑" }
-            button { r#type: "button", aria_label: down.clone(), title: down, disabled: index + 1 == count,
-                onclick: move |_| change.call(OrderAction::Down), "↓" }
-            button { r#type: "button", aria_label: remove.clone(), title: remove,
-                onclick: move |_| change.call(OrderAction::Remove), "×" }
+            button { class: "recipe-control recipe-move-up", r#type: "button", aria_label: up.clone(), title: up, disabled: index == 0,
+                onclick: move |_| change.call(OrderAction::Up), crate::Icon { kind: "chevron-down" } }
+            button { class: "recipe-control", r#type: "button", aria_label: down.clone(), title: down, disabled: index + 1 == count,
+                onclick: move |_| change.call(OrderAction::Down), crate::Icon { kind: "chevron-down" } }
+            button { class: "recipe-control", r#type: "button", aria_label: remove.clone(), title: remove,
+                onclick: move |_| change.call(OrderAction::Remove), crate::Icon { kind: "trash" } }
         }
     }
 }
