@@ -30,7 +30,7 @@ pub(super) fn ShoppingPicker(
     rsx! {
         button {
             r#type: "button",
-            class: "recipe-action secondary-button",
+            class: "recipe-action recipe-control secondary-button",
             onclick: move |_| {
                 if pending() {
                     return;

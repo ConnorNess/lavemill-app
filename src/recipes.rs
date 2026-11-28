@@ -198,7 +198,10 @@ fn RecipeDetailContent(id: i64) -> Element {
                     header { class: "recipe-heading",
                         h1 { "{recipe.contents.title}" }
                         div { class: "recipe-detail-actions",
-                            Link { class: "recipe-action secondary-button", to: Route::EditRecipe { id }, "Edit recipe" }
+                            Link { class: "recipe-action recipe-control secondary-button", to: Route::EditRecipe { id },
+                                crate::Icon { kind: "pencil" }
+                                "Edit recipe"
+                            }
                             DeleteRecipe { id, revision: recipe.revision, title: recipe.contents.title.clone() }
                         }
                     }
@@ -224,7 +227,7 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
     rsx! {
         button {
             r#type: "button",
-            class: "recipe-action secondary-button",
+            class: "recipe-action recipe-control secondary-button",
             onclick: move |_| {
                 confirmation.set(String::new());
                 if !stale() {
@@ -316,12 +319,12 @@ fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
                 for section in &contents.ingredients {
                     div { class: if section.heading.is_some() { "recipe-subsection" },
                         if let Some(heading) = &section.heading { h3 { "{heading}" } }
-                        ul {
+                        ul { class: "recipe-ingredient-list",
                             for ingredient in &section.entries {
                                 li {
-                                    "{ingredient.name}"
+                                    span { class: "recipe-ingredient-name", "{ingredient.name}" }
                                     if let Some(quantity) = &ingredient.quantity {
-                                        span { class: "row-note", " · {quantity}" }
+                                        span { class: "recipe-ingredient-quantity", "{quantity}" }
                                     }
                                 }
                             }
@@ -334,7 +337,7 @@ fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
                 for (start, section) in step_numbers {
                     div { class: if section.heading.is_some() { "recipe-subsection" },
                         if let Some(heading) = &section.heading { h3 { "{heading}" } }
-                        ol { start: start as i64,
+                        ol { class: "recipe-step-list", start: start as i64,
                             for step in &section.entries {
                                 li {
                                     div { class: "recipe-text", "{step.instructions}" }
