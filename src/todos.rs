@@ -90,6 +90,9 @@ pub(crate) enum Change {
         assignee: Option<i64>,
         repeat: Repeat,
     },
+    DeleteRepeat {
+        id: i64,
+    },
     Rename {
         id: i64,
         title: String,
@@ -376,6 +379,8 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
     let mut pending = use_signal(|| false);
     let mut draft = use_signal(|| None::<TaskDraft>);
     let mut editing_repeat = use_signal(|| false);
+    let mut confirming_delete = use_signal(|| false);
+    let mut restore_delete_focus = use_signal(|| false);
     let mut focus_after_edit = use_signal(|| None::<TaskField>);
     let id = task.id;
     let initial_title = task.title.clone();
@@ -448,7 +453,8 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
             "data-task-transition-id": "{id}",
             if open || completed {
                 label { class: "task-check-target",
-                    input { r#type: "checkbox", checked: completed, disabled: pending() || editing_repeat() || (completed && !task.can_reopen),
+                    input { r#type: "checkbox", checked: completed,
+                    disabled: pending() || editing_repeat() || confirming_delete() || (completed && !task.can_reopen),
                     aria_label: if completed { format!("Reopen {}", task.title) } else { format!("Complete {}", task.title) },
                     onchange: move |event| {
                         submit.call(if event.checked() { Change::Complete { id } } else { Change::Reopen { id } });
@@ -508,6 +514,24 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                                 editing_repeat.set(false);
                             },
                         }
+                    } else if confirming_delete() {
+                        div { class: "repeat-delete-confirmation", role: "group", aria_label: "Confirm repeat deletion",
+                            p { "Delete the repeat for “{task.title}”? This removes its open tasks and stops future occurrences." }
+                            div { class: "repeat-actions",
+                                button { class: "secondary-button", r#type: "button", disabled: pending(),
+                                    onmounted: focus_task_control,
+                                    onclick: move |_| {
+                                        error.set(String::new());
+                                        restore_delete_focus.set(true);
+                                        confirming_delete.set(false);
+                                    },
+                                    "Cancel"
+                                }
+                                button { class: "secondary-button repeat-delete-button", r#type: "button", disabled: pending(),
+                                    onclick: move |_| submit.call(Change::DeleteRepeat { id }), "Delete repeat"
+                                }
+                            }
+                        }
                     } else {
                         div { class: "repeat-actions",
                             button { class: "secondary-button", r#type: "button", disabled: pending(),
@@ -517,6 +541,20 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
                                     editing_repeat.set(true);
                                 },
                                 "Edit repeat"
+                            }
+                            button { class: "secondary-button repeat-delete-button", r#type: "button", disabled: pending(),
+                                aria_label: "Delete repeat for {task.title}",
+                                onmounted: move |event| async move {
+                                    if restore_delete_focus() {
+                                        restore_delete_focus.set(false);
+                                        focus_task_control(event).await;
+                                    }
+                                },
+                                onclick: move |_| {
+                                    error.set(String::new());
+                                    confirming_delete.set(true);
+                                },
+                                "Delete repeat"
                             }
                         }
                     }

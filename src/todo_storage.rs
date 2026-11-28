@@ -25,7 +25,7 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
             "SELECT t.id, t.title, t.description, t.due, t.assignee_id,
                 reporter.first_name || ' ' || reporter.last_name,
                 assignee.first_name || ' ' || assignee.last_name, assignee.first_name, t.status,
-                t.status = 'completed' AND (t.next_due IS NULL OR (
+                t.status = 'completed' AND COALESCE(s.retired, 0) = 0 AND (t.next_due IS NULL OR (
                     t.next_due > ?1 AND EXISTS (
                         SELECT 1 FROM todos successor
                         WHERE successor.series_id = t.series_id AND successor.due = t.next_due
@@ -152,6 +152,7 @@ fn apply_change(
                 },
             );
         }
+        Change::DeleteRepeat { id } => return delete_repeat(db, id),
         Change::Rename { id, title } => db.execute(
             "UPDATE todos SET title = ?2
              WHERE id = ?1 AND status = 'open' AND series_id IS NULL",
@@ -172,7 +173,9 @@ fn apply_change(
         Change::Reopen { id } => db.execute(
             "UPDATE todos AS t SET status = 'open', assignee_id = previous_assignee_id,
                 previous_assignee_id = NULL, completed_by = NULL, completed_at = NULL
-             WHERE id = ?1 AND status = 'completed' AND (next_due IS NULL OR (
+             WHERE id = ?1 AND status = 'completed'
+             AND NOT EXISTS (SELECT 1 FROM todo_series WHERE id = t.series_id AND retired = 1)
+             AND (next_due IS NULL OR (
                 next_due > ?2 AND EXISTS (
                     SELECT 1 FROM todos successor
                     WHERE successor.series_id = t.series_id AND successor.due = t.next_due
@@ -249,7 +252,7 @@ fn edit_repeat(db: &Connection, today: &str, id: i64, task: NewTask) -> Result<(
     let (series_id, old_due, old_frequency): (i64, String, String) = db
         .query_row(
             "SELECT s.id, t.due, s.frequency FROM todos t JOIN todo_series s ON s.id = t.series_id
-             WHERE t.id = ?1 AND t.status = 'open'",
+             WHERE t.id = ?1 AND t.status = 'open' AND s.retired = 0",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
@@ -299,6 +302,34 @@ fn edit_repeat(db: &Connection, today: &str, id: i64, task: NewTask) -> Result<(
     )
     .map_err(database_error)?;
     catch_up(db, today)
+}
+
+fn delete_repeat(db: &Connection, id: i64) -> Result<(), &'static str> {
+    let series_id: i64 = db
+        .query_row(
+            "UPDATE todo_series SET retired = 1
+             WHERE retired = 0 AND id = (
+                SELECT series_id FROM todos WHERE id = ?1 AND status = 'open'
+             ) RETURNING id",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database_error)?
+        .ok_or("This task has changed. Refresh and try again.")?;
+    db.execute(
+        "DELETE FROM todos WHERE series_id = ?1 AND status = 'open'",
+        [series_id],
+    )
+    .map_err(database_error)?;
+    db.execute(
+        "DELETE FROM todo_series WHERE id = ?1 AND NOT EXISTS (
+            SELECT 1 FROM todos WHERE series_id = ?1
+        )",
+        [series_id],
+    )
+    .map_err(database_error)?;
+    Ok(())
 }
 
 fn validate_due(due: &str) -> Result<NaiveDate, &'static str> {
@@ -370,7 +401,8 @@ fn create_successor(db: &Connection, id: i64) -> Result<(), &'static str> {
     let schedule: Option<(String, String, String)> = db
         .query_row(
             "SELECT s.frequency, s.first_due, t.next_due FROM todos t
-         JOIN todo_series s ON s.id = t.series_id WHERE t.id = ?1 AND t.next_due IS NOT NULL",
+         JOIN todo_series s ON s.id = t.series_id
+         WHERE t.id = ?1 AND t.next_due IS NOT NULL AND s.retired = 0",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
@@ -667,6 +699,51 @@ mod tests {
             list(&mut reopened, today).unwrap().tasks[3].due,
             "2027-03-31"
         );
+    }
+
+    #[test]
+    fn deleting_a_repeat_removes_open_tasks_and_keeps_history_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("test.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        db.execute(
+            "INSERT INTO users VALUES (1, 'alex', 'Alex', 'One', 'test', 0)",
+            [],
+        )
+        .unwrap();
+        let today = "2026-11-23".parse().unwrap();
+        let create = |repeat| Change::Create {
+            title: "Put the bins out".into(),
+            description: String::new(),
+            due: "2026-11-23".into(),
+            assignee: Some(1),
+            repeat,
+        };
+        apply(&mut db, today, 1, create(Repeat::Weekly)).unwrap();
+        apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
+        apply(&mut db, today, 1, Change::Complete { id: 2 }).unwrap();
+        apply(&mut db, today, 1, Change::Reopen { id: 2 }).unwrap();
+        assert_eq!(list(&mut db, today).unwrap().tasks.len(), 3);
+
+        apply(&mut db, today, 1, Change::DeleteRepeat { id: 2 }).unwrap();
+        let tasks = list(&mut db, today).unwrap().tasks;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, 1);
+        assert_eq!(tasks[0].status, "completed");
+        assert!(!tasks[0].can_reopen);
+        assert!(apply(&mut db, today, 1, Change::Reopen { id: 1 }).is_err());
+        apply(&mut db, today, 1, Change::Complete { id: 1 }).unwrap();
+
+        let later = "2027-01-01".parse().unwrap();
+        assert_eq!(list(&mut db, later).unwrap().tasks.len(), 1);
+        apply(&mut db, today, 1, create(Repeat::Once)).unwrap();
+        assert!(apply(&mut db, today, 1, Change::Complete { id: 3 }).is_err());
+        let tasks = list(&mut db, later).unwrap().tasks;
+        let open = tasks.iter().find(|task| task.status == "open").unwrap();
+        assert!(open.id > 3);
+        assert!(open.recurrence.is_none());
+        assert!(apply(&mut db, today, 1, Change::DeleteRepeat { id: open.id }).is_err());
     }
 
     #[test]
