@@ -316,7 +316,7 @@ pub fn Users() -> Element {
                         if added() { p { class: "form-feedback", role: "status", "User added." } }
                         div { id: "users-workspace",
                             if adding() {
-                                section { class: "add-task-panel surface-panel",
+                                section { class: "user-add-card add-task-panel surface-panel",
                                     h2 { "Add user" }
                                     UserDetails { on_created: move |user: User| {
                                         let id = user.id;
@@ -337,13 +337,26 @@ pub fn Users() -> Element {
                                     }
                                 }
                             } else if let Some(user) = accounts.iter().find(|user| Some(user.id) == selected()) {
-                                section { key: "{user.id}", class: "add-task-panel surface-panel",
-                                    h2 { "{user.first_name} {user.last_name}" }
-                                    if user.is_admin { p { "Your admin account" } }
-                                    UserDetails { user: user.clone(), on_created: |_| {} }
-                                    PlexProfileForm { id: user.id, initial: user.plex_profile_id, profiles }
-                                    SteamProfileForm { id: user.id, initial: user.steam_id.clone() }
-                                    PasswordReset { id: user.id, is_admin: user.is_admin }
+                                section { key: "{user.id}", class: "user-account-card add-task-panel surface-panel", aria_labelledby: "user-account-title",
+                                    header { class: "users-card-heading",
+                                        h2 { id: "user-account-title", "{user.first_name} {user.last_name}" }
+                                        if user.is_admin { p { "Your admin account" } }
+                                    }
+                                    div { class: "user-account-sections",
+                                        section {
+                                            h3 { "Account details" }
+                                            UserDetails { user: user.clone(), on_created: |_| {} }
+                                        }
+                                        section { class: "user-profiles",
+                                            h3 { "Linked profiles" }
+                                            PlexProfileForm { id: user.id, initial: user.plex_profile_id, profiles }
+                                            SteamProfileForm { id: user.id, initial: user.steam_id.clone() }
+                                        }
+                                        section { class: "user-password-reset",
+                                            h3 { "Reset password" }
+                                            PasswordReset { id: user.id, is_admin: user.is_admin }
+                                        }
+                                    }
                                 }
                             }
                         }
