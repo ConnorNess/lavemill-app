@@ -2,6 +2,7 @@ const [page, returningHome, recipeId] = await dioxus.recv();
 const root = document.documentElement;
 const activeClass = "home-card-transition";
 const returnClass = "home-card-return";
+const shoppingClass = "home-card-open-shopping";
 
 if (root.classList.contains(activeClass)) {
     dioxus.send(false);
@@ -66,9 +67,11 @@ const nameTaskRow = (row) => {
 };
 const outgoingPage = openingFromHeader || recipeKey !== null ? interiorPage : null;
 const outgoingClass = "home-card-source";
+const openingShopping = page === "shopping" && !returningHome;
 
 root.classList.add(activeClass);
 root.classList.toggle(returnClass, returningHome);
+root.classList.toggle(shoppingClass, openingShopping);
 try {
     outgoingPage?.classList.add(outgoingClass);
     if (page === "todos") {
@@ -88,6 +91,10 @@ try {
         const findPage = () => {
             const destination = document.querySelector(destinationSelector);
             if (!destination) return;
+            if (openingShopping) {
+                finish();
+                return;
+            }
 
             let anchorBounds = bounds;
             let landingCard;
@@ -132,7 +139,7 @@ try {
     transition.ready.catch(() => {});
     await transition.finished;
 } finally {
-    root.classList.remove(activeClass, returnClass);
+    root.classList.remove(activeClass, returnClass, shoppingClass);
     outgoingPage?.classList.remove(outgoingClass);
     for (const property of properties) root.style.removeProperty(property);
     for (const row of namedRows) row.style.removeProperty("view-transition-name");

@@ -400,6 +400,60 @@ svg { display: block; flex-shrink: 0; }
     to { clip-path: circle(var(--card-reveal-radius) at var(--card-reveal-x) var(--card-reveal-y)); }
 }
 
+.home-card-open-shopping :is(.shopping-page, .dashboard-card:has([data-card-page="shopping"])) {
+    view-transition-name: shopping-card;
+}
+.home-card-open-shopping .dashboard-card:has([data-card-page="todos"]) { view-transition-name: shopping-exit-before; }
+.home-card-open-shopping .dashboard-card:is(.calendar-no-access, :has([data-card-page="calendar"])) { view-transition-name: shopping-exit-after; }
+
+:root.home-card-open-shopping::view-transition-old(home-card-outgoing) {
+    animation: 180ms ease-out both home-card-fade;
+}
+:root.home-card-open-shopping::view-transition-group(shopping-card) {
+    z-index: 3;
+    animation-duration: 440ms;
+    animation-delay: 80ms;
+    animation-timing-function: cubic-bezier(0.24, 0.65, 0.28, 1);
+}
+::view-transition-image-pair(shopping-card) {
+    overflow: clip;
+    animation: 520ms ease-out both shopping-card-frame;
+}
+/* Resize the frame while keeping the text in both snapshots at its original size. */
+::view-transition-old(shopping-card), ::view-transition-new(shopping-card) {
+    height: 100%;
+    object-fit: none;
+    object-position: left top;
+    mix-blend-mode: normal;
+}
+::view-transition-old(shopping-card) { animation: 170ms 80ms ease-out both home-card-fade; }
+::view-transition-new(shopping-card) { animation: 210ms 170ms ease-in reverse both home-card-fade; }
+
+:root.home-card-open-shopping::view-transition-group(shopping-exit-before),
+:root.home-card-open-shopping::view-transition-group(shopping-exit-after) { animation: none; }
+::view-transition-old(shopping-exit-before), ::view-transition-old(shopping-exit-after) {
+    animation: 280ms cubic-bezier(0.55, 0, 0.75, 0.35) both shopping-card-exit;
+}
+::view-transition-old(shopping-exit-before) { --exit-x: -100vw; --exit-y: 0px; }
+::view-transition-old(shopping-exit-after) { --exit-x: 100vw; --exit-y: 0px; animation-delay: 32ms; }
+
+@media (max-width: 899px) {
+    ::view-transition-old(shopping-exit-before) { --exit-x: 0px; --exit-y: -100dvh; }
+    ::view-transition-old(shopping-exit-after) { --exit-x: 0px; --exit-y: 100dvh; }
+}
+@keyframes shopping-card-exit {
+    18% { translate: calc(var(--exit-x) * -0.008) calc(var(--exit-y) * -0.008); opacity: 1; }
+    to { translate: var(--exit-x) var(--exit-y); opacity: 0.6; }
+}
+@keyframes shopping-card-frame {
+    0% { background-color: transparent; box-shadow: inset 0 0 0 1px transparent; }
+    22% {
+        background-color: var(--panel-shade);
+        box-shadow: inset 4px 0 var(--theme-card-highlight), inset 0 0 0 1px var(--theme-control-edge);
+    }
+    to { background-color: transparent; box-shadow: inset 4px 0 transparent, inset 0 0 0 1px transparent; }
+}
+
 @media (max-width: 600px) {
     .home-dashboard .card-heading { flex-wrap: nowrap; padding: 16px 16px 8px; gap: 10px; }
     .home-dashboard .card-heading-copy { min-width: 0; }
