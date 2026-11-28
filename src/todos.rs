@@ -243,7 +243,7 @@ pub(super) fn TasksCard() -> Element {
     });
     rsx! {
         crate::card_navigation::HomeCard {
-            to: Route::Todos {}, label: "Open to-dos", page: "todos", heading: "tasks-title", scrollable: true,
+            to: Route::Todos {}, label: "Open to-dos", heading: "tasks-title", scrollable: true,
             CardHeading { icon: "tasks", title: "To-dos", id: "tasks-title", count: format!("{open} open") }
             div { class: "card-body",
                 if refresh_failed() {
@@ -286,7 +286,6 @@ fn TaskPreviewRow(
     let revision = if failed_id == Some(id) { revision } else { 0 };
     rsx! {
         li { class: if completed { "list-row is-done" } else { "list-row" },
-            "data-task-transition-id": "{id}",
             if !guest && (task.status == "open" || completed) {
                 label { class: "task-check-target",
                     // A keyed child lets a rejected change replace the browser's toggled input.
@@ -322,7 +321,7 @@ pub(super) fn Todos() -> Element {
     let result = data.read();
     rsx! {
         document::Title { "Lavemill · To-dos" }
-        main { id: "main", class: "dashboard interior-page todos-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page todos-page", tabindex: "-1", "data-navigation-page": "/todos",
             div { class: "todos-heading", h1 { "To-dos" } }
             match result.as_ref() {
                 Some(Ok(data)) => rsx! {
@@ -379,7 +378,6 @@ fn TaskGroup(group: Group, tasks: Vec<Task>, members: Vec<Member>) -> Element {
 fn ReadOnlyTaskRow(task: Task) -> Element {
     rsx! {
         li { class: if task.status == "completed" { "list-row is-done" } else { "list-row" },
-            "data-task-transition-id": "{task.id}",
             div { class: "row-copy",
                 span { class: "row-title", "{task.title}" }
                 if let Some(description) = &task.description {
@@ -486,7 +484,6 @@ fn EditableTaskRow(task: Task, members: Vec<Member>) -> Element {
         .unwrap_or_default();
     rsx! {
         li { class: if completed { "editable-task is-done" } else { "editable-task" },
-            "data-task-transition-id": "{id}",
             if open || completed {
                 label { class: "task-check-target",
                     input { r#type: "checkbox", checked: completed,

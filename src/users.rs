@@ -274,7 +274,7 @@ pub fn Users() -> Element {
     });
     let result = users.read();
     rsx! {
-        main { id: "main", class: "dashboard interior-page users-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page users-page", tabindex: "-1", "data-navigation-page": "/users",
             document::Title { "Lavemill · Users" }
             h1 { "Users" }
             match result.as_ref() {

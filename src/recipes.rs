@@ -1,3 +1,4 @@
+use crate::card_navigation::{replace_page, NavigationLink};
 use crate::Route;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -159,11 +160,11 @@ pub(super) fn Recipes() -> Element {
     let recipes = use_server_future(list_recipes)?;
     rsx! {
         document::Title { "Lavemill · Recipes" }
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipes-index": "",
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-navigation-page": "/recipes",
             header { class: "recipe-heading",
                 h1 { "Recipes" }
                 if !guest {
-                    Link { class: "recipe-action recipe-control primary-button", to: Route::NewRecipe {}, "Add recipe" }
+                    NavigationLink { class: "recipe-action recipe-control primary-button", to: Route::NewRecipe {}, anchor: true, "Add recipe" }
                 }
             }
             match recipes.read().as_ref() {
@@ -172,7 +173,7 @@ pub(super) fn Recipes() -> Element {
                     ul { class: "recipe-cards",
                         for card in cards {
                             li { key: "{card.id}",
-                                crate::card_navigation::RecipeCardLink { id: card.id, title: card.title.clone() }
+                                NavigationLink { class: "recipe-card surface-panel", to: Route::RecipeDetail { id: card.id }, anchor: true, "{card.title}" }
                             }
                         }
                     }
@@ -194,7 +195,8 @@ fn RecipeDetailContent(id: i64) -> Element {
     let guest = crate::auth::use_is_guest();
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipe-detail-id": "{id}",
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+            "data-navigation-page": "/recipes/{id}", "data-navigation-parent": "/recipes",
             match recipe.read().as_ref() {
                 Some(Ok(Some(recipe))) => rsx! {
                     document::Title { "Lavemill · {recipe.contents.title}" }
@@ -202,7 +204,10 @@ fn RecipeDetailContent(id: i64) -> Element {
                         h1 { "{recipe.contents.title}" }
                         if !guest {
                             div { class: "recipe-detail-actions",
-                                crate::card_navigation::EditRecipeLink { id }
+                                NavigationLink { class: "recipe-action recipe-control secondary-button", to: Route::EditRecipe { id }, anchor: true,
+                                    crate::Icon { kind: "pencil" }
+                                    "Edit recipe"
+                                }
                                 DeleteRecipe { id, revision: recipe.revision, title: recipe.contents.title.clone() }
                             }
                         }
@@ -260,7 +265,10 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
                     error.set("");
                     spawn(async move {
                         match delete_recipe(id, revision, typed_title).await {
-                            Ok(true) => { navigator.replace(Route::Recipes {}); }
+                            Ok(true) => {
+                                let _ = document::eval(r#"document.getElementById("recipe-delete-dialog")?.close();"#);
+                                replace_page(navigator, Route::Recipes {}).await;
+                            }
                             Ok(false) => {
                                 stale.set(true);
                                 error.set("This recipe changed or is unavailable. Reload the page to continue.");

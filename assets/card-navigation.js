@@ -1,139 +1,166 @@
-const [page, returningHome, recipeId] = await dioxus.recv();
-const root = document.documentElement;
-const activeClass = "home-card-transition";
-const returnClass = "home-card-return";
+(() => {
+    const root = document.documentElement;
+    const activeClass = "home-card-transition";
+    const returnClass = "home-card-return";
+    const deckClass = "home-card-deck";
+    const pageSelector = "main#main[data-navigation-page]";
+    const headerSelector = ".site-header";
+    const panelName = "navigation-panel";
+    const sceneName = "navigation-scene";
+    let stopActiveTransition;
+    const anchorSelector = (path) => `[data-navigation-anchor="${CSS.escape(path)}"]`;
+    const canAnimate = () => document.startViewTransition &&
+        !matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const findCard = (home, path) => home.querySelector(anchorSelector(path))?.closest(".dashboard-card");
+    const findHeaderAnchor = (path) => document.querySelector(headerSelector)
+        ?.querySelector(anchorSelector(path));
+    const isVisible = (element) => {
+        if (!element) return false;
+        const { top, bottom, left, right } = element.getBoundingClientRect();
+        return bottom > 0 && top < root.clientHeight && right > 0 && left < root.clientWidth;
+    };
 
-if (root.classList.contains(activeClass)) {
-    dioxus.send(false);
-    return;
-}
-
-const pageKey = CSS.escape(page);
-const recipeKey = recipeId == null ? null : CSS.escape(recipeId);
-const openingRecipeEditor = page === "recipe-edit";
-const findCard = () => document.querySelector(`[data-card-page="${pageKey}"]`)
-    ?.closest(".dashboard-card");
-const findHeaderAnchor = () => document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
-const openingFromHeader = !returningHome && recipeKey === null && (page === "users" || page === "recipes");
-const interiorPage = document.querySelector("main#main.interior-page");
-let source;
-if (returningHome) {
-    source = interiorPage;
-} else if (recipeKey !== null) {
-    const anchor = openingRecipeEditor ? "data-recipe-edit-link-id" : "data-recipe-card-id";
-    source = document.querySelector(`[${anchor}="${recipeKey}"]`);
-} else {
-    source = openingFromHeader ? findHeaderAnchor() : findCard();
-}
-if (!source || !document.startViewTransition ||
-    matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    dioxus.send(true);
-    return;
-}
-
-const bounds = source.getBoundingClientRect();
-const viewportWidth = root.clientWidth;
-const viewportHeight = root.clientHeight;
-let destinationPage = `.${pageKey}-page`;
-if (recipeKey !== null) {
-    const destination = openingRecipeEditor ? "data-recipe-edit-id" : "data-recipe-detail-id";
-    destinationPage = `[${destination}="${recipeKey}"]`;
-} else if (page === "recipes") {
-    destinationPage = "[data-recipes-index]";
-}
-const destinationSelector = returningHome ? "main.home-dashboard" : `main#main${destinationPage}`;
-const properties = ["--card-reveal-x", "--card-reveal-y", "--card-reveal-radius"];
-const taskSelector = "[data-task-transition-id]";
-const visibleTasks = new Set();
-const namedRows = [];
-const visibleTaskRows = (container, clippingCard) => {
-    const cardTop = clippingCard
-        ? clippingCard.getBoundingClientRect().top + clippingCard.clientTop
-        : 0;
-    const top = Math.max(0, cardTop);
-    const bottom = clippingCard
-        ? Math.min(root.clientHeight, cardTop + clippingCard.clientHeight)
-        : root.clientHeight;
-    // Clipped rows would pop into view when promoted to their own snapshot.
-    return Array.from(container.querySelectorAll(taskSelector)).filter((row) => {
-        const { height, top: rowTop, bottom: rowBottom } = row.getBoundingClientRect();
-        return height > 0 && rowTop >= top && rowBottom <= bottom;
-    });
-};
-const nameTaskRow = (row) => {
-    row.style.viewTransitionName = `home-card-task-${row.dataset.taskTransitionId}`;
-    namedRows.push(row);
-};
-const outgoingPage = openingFromHeader || recipeKey !== null ? interiorPage : null;
-const outgoingClass = "home-card-source";
-
-root.classList.add(activeClass);
-root.classList.toggle(returnClass, returningHome);
-try {
-    outgoingPage?.classList.add(outgoingClass);
-    if (page === "todos") {
-        for (const row of visibleTaskRows(source, returningHome ? null : source)) {
-            visibleTasks.add(row.dataset.taskTransitionId);
-            nameTaskRow(row);
+    window.lavemillNavigate = async (path, navigate, { replacing = false, blocked, savedScroll } = {}) => {
+        if (root.classList.contains(activeClass)) {
+            if (replacing) navigate();
+            else blocked?.();
+            return;
         }
-    }
 
-    const transition = document.startViewTransition(() => new Promise((resolve) => {
-        outgoingPage?.classList.remove(outgoingClass);
-        const finish = () => {
-            observer.disconnect();
-            clearTimeout(timeout);
-            resolve();
+        const outgoingPage = document.querySelector(pageSelector);
+        const from = outgoingPage?.dataset.navigationPage;
+        const to = new URL(path, location.href).pathname;
+        if (!from || from === to || !canAnimate()) {
+            navigate();
+            return;
+        }
+
+        const returning = to === "/" || outgoingPage.dataset.navigationParent === to;
+        const launchCard = from === "/" ? findCard(outgoingPage, to) : null;
+        const launchAnchor = returning ? null :
+            outgoingPage.querySelector(anchorSelector(to)) ?? findHeaderAnchor(to);
+        const outgoingPanel = launchCard ?? (isVisible(launchAnchor) ? launchAnchor : outgoingPage);
+        const namedElements = new Map();
+        const nameElement = (element, name) => {
+            if (!namedElements.has(element)) namedElements.set(element, element.style.viewTransitionName);
+            element.style.viewTransitionName = name;
         };
-        const findPage = () => {
-            const destination = document.querySelector(destinationSelector);
-            if (!destination) return;
+        const nameDeck = (selected) => {
+            const cards = Array.from(selected.parentElement.querySelectorAll(":scope > .dashboard-card"));
+            const selectedIndex = cards.indexOf(selected);
+            for (const [index, card] of cards.entries()) {
+                const offset = index - selectedIndex;
+                if (offset === 0) continue;
 
-            let anchorBounds = bounds;
-            let landingCard;
-            if (returningHome) {
-                landingCard = findCard();
-                const anchor = landingCard ?? findHeaderAnchor();
-                if (!anchor) return;
-                landingCard?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
-                anchorBounds = anchor.getBoundingClientRect();
+                const before = offset < 0;
+                const direction = before ? "before" : "after";
+                const delayed = before ? index > 0 : offset === 1;
+                nameElement(card, `dashboard-card-${direction}${delayed ? "-delayed" : ""}`);
             }
-            const { left, top } = returningHome ? bounds : destination.getBoundingClientRect();
-            const centerX = anchorBounds.left + anchorBounds.width / 2;
-            const centerY = anchorBounds.top + anchorBounds.height / 2;
-            const radius = Math.hypot(
-                Math.max(Math.abs(centerX), Math.abs((returningHome ? viewportWidth : root.clientWidth) - centerX)),
-                Math.max(Math.abs(centerY), Math.abs((returningHome ? viewportHeight : root.clientHeight) - centerY)),
-            );
-            root.style.setProperty("--card-reveal-x", `${centerX - left}px`);
-            root.style.setProperty("--card-reveal-y", `${centerY - top}px`);
-            root.style.setProperty("--card-reveal-radius", `${radius}px`);
-            if (visibleTasks.size) {
-                const destinationRows = landingCard
-                    ? visibleTaskRows(landingCard, landingCard)
-                    : destination.querySelectorAll(taskSelector);
-                for (const row of destinationRows) {
-                    if (visibleTasks.has(row.dataset.taskTransitionId)) nameTaskRow(row);
+            root.classList.add(deckClass);
+        };
+        let navigated = false;
+        let cancelled = false;
+        let finishUpdate;
+        const navigateOnce = () => {
+            if (navigated || cancelled) return;
+            navigated = true;
+            navigate();
+        };
+
+        root.classList.add(activeClass);
+        root.classList.toggle(returnClass, returning);
+        try {
+            nameElement(outgoingPanel, panelName);
+            if (outgoingPanel !== outgoingPage) nameElement(outgoingPage, sceneName);
+            if (launchCard) nameDeck(launchCard);
+
+            const transition = document.startViewTransition(() => new Promise((resolve) => {
+                if (cancelled) {
+                    resolve();
+                    return;
                 }
-            }
-            finish();
-        };
-        const observer = new MutationObserver(findPage);
-        observer.observe(document.body, {
-            childList: true, subtree: true, attributes: true,
-            attributeFilter: ["data-recipes-index", "data-recipe-detail-id", "data-recipe-edit-id"],
-        });
-        const timeout = setTimeout(() => {
-            transition.skipTransition();
-            finish();
-        }, 450);
-        dioxus.send(true);
-    }));
-    transition.ready.catch(() => {});
-    await transition.finished;
-} finally {
-    root.classList.remove(activeClass, returnClass);
-    outgoingPage?.classList.remove(outgoingClass);
-    for (const property of properties) root.style.removeProperty(property);
-    for (const row of namedRows) row.style.removeProperty("view-transition-name");
-}
+                const finish = () => {
+                    observer.disconnect();
+                    clearTimeout(timeout);
+                    finishUpdate = null;
+                    resolve();
+                };
+                const findPage = () => {
+                    const incomingPage = document.querySelector(
+                        `${pageSelector}[data-navigation-page="${CSS.escape(to)}"]`,
+                    );
+                    if (!incomingPage) return;
+                    if (savedScroll) {
+                        // The browser pauses animation frames before capturing the incoming page.
+                        const [left, top] = savedScroll;
+                        window.scrollTo({ left, top, behavior: "instant" });
+                    }
+
+                    const landingCard = to === "/" ? findCard(incomingPage, from) : null;
+                    const section = from.split("/", 2).join("/");
+                    const landingAnchor = to === "/" ? findHeaderAnchor(section) :
+                        incomingPage.querySelector(anchorSelector(from));
+                    const anchor = landingCard ?? landingAnchor;
+                    const useAnchor = returning && anchor && (!savedScroll || isVisible(anchor));
+                    const incomingPanel = useAnchor ? anchor : incomingPage;
+                    if (incomingPanel !== incomingPage) {
+                        if (!savedScroll) {
+                            incomingPanel.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+                        }
+                        nameElement(incomingPage, sceneName);
+                    }
+                    nameElement(incomingPanel, panelName);
+                    if (incomingPanel === landingCard) nameDeck(landingCard);
+                    finish();
+                };
+                const observer = new MutationObserver(findPage);
+                observer.observe(document.body, {
+                    childList: true, subtree: true, attributes: true,
+                    attributeFilter: ["data-navigation-page"],
+                });
+                const timeout = setTimeout(() => {
+                    transition.skipTransition();
+                    finish();
+                }, 450);
+                finishUpdate = finish;
+                navigateOnce();
+                findPage();
+            }));
+            stopActiveTransition = () => {
+                cancelled = true;
+                if (!navigated) blocked?.();
+                transition.skipTransition();
+                finishUpdate?.();
+            };
+            transition.ready.catch(() => {});
+            await transition.finished;
+        } catch {
+            navigateOnce();
+        } finally {
+            stopActiveTransition = null;
+            root.classList.remove(activeClass, returnClass, deckClass);
+            for (const [element, name] of namedElements) element.style.viewTransitionName = name;
+        }
+    };
+
+    window.addEventListener("popstate", (event) => {
+        if (!event.isTrusted) return;
+        if (stopActiveTransition) {
+            stopActiveTransition();
+            return;
+        }
+
+        const from = document.querySelector(pageSelector)?.dataset.navigationPage;
+        const to = location.pathname;
+        if (!from || from === to || to === "/login" || event.hasUAVisualTransition || !canAnimate()) return;
+        const savedScroll = event.state;
+        if (!Array.isArray(savedScroll) || savedScroll.length !== 2 || !savedScroll.every(Number.isFinite)) return;
+
+        // Let Dioxus handle the original history state after the browser captures the outgoing page.
+        event.stopImmediatePropagation();
+        void window.lavemillNavigate(location.href, () => {
+            window.dispatchEvent(new PopStateEvent("popstate", { state: event.state }));
+        }, { savedScroll });
+    }, { capture: true });
+})();

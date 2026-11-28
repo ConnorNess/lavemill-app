@@ -372,32 +372,95 @@ svg { display: block; flex-shrink: 0; }
 .home-dashboard .card-page-link { display: none; }
 
 :root.home-card-transition { view-transition-name: none; }
-.home-card-transition .home-dashboard { view-transition-name: home-card-outgoing; }
-.home-card-transition .interior-page { view-transition-name: home-card-incoming; }
-.home-card-transition .interior-page.home-card-source { view-transition-name: home-card-outgoing; }
-:root.home-card-transition::view-transition-group(*) {
-    z-index: 2;
-    animation-duration: 400ms;
-    animation-timing-function: cubic-bezier(0.2, 0.7, 0.3, 1);
+:root.home-card-transition::view-transition-group(navigation-scene) { animation: none; }
+::view-transition-old(navigation-scene) { animation: 210ms ease-out both navigation-scene-exit; }
+::view-transition-new(navigation-scene) { animation: 210ms 310ms ease-in reverse both navigation-scene-exit; }
+:root.home-card-deck::view-transition-old(navigation-scene) {
+    animation: 180ms ease-out both home-card-fade;
 }
-:root.home-card-transition::view-transition-group(home-card-outgoing) { z-index: 0; }
-:root.home-card-transition::view-transition-group(home-card-incoming) { z-index: 1; }
-::view-transition-old(home-card-outgoing) {
-    animation: 360ms ease-out both home-card-fade;
-}
-::view-transition-new(home-card-incoming) {
-    animation: 360ms cubic-bezier(0.2, 0.7, 0.3, 1) both home-card-reveal;
-}
-:root.home-card-return::view-transition-new(home-card-outgoing) {
-    animation: 360ms ease-out reverse both home-card-fade;
-}
-:root.home-card-return::view-transition-old(home-card-incoming) {
-    animation: 360ms cubic-bezier(0.2, 0.7, 0.3, 1) reverse both home-card-reveal;
+:root.home-card-deck::view-transition-new(navigation-scene) {
+    animation: 180ms 340ms ease-in reverse both home-card-fade;
 }
 @keyframes home-card-fade { to { opacity: 0; } }
-@keyframes home-card-reveal {
-    from { clip-path: circle(0 at var(--card-reveal-x) var(--card-reveal-y)); }
-    to { clip-path: circle(var(--card-reveal-radius) at var(--card-reveal-x) var(--card-reveal-y)); }
+@keyframes navigation-scene-exit { to { opacity: 0; translate: 0 40px; } }
+
+:root.home-card-transition::view-transition-group(navigation-panel) {
+    z-index: 3;
+    animation-duration: 440ms;
+    animation-delay: 80ms;
+    animation-timing-function: cubic-bezier(0.24, 0.65, 0.28, 1);
+}
+:root.home-card-return::view-transition-group(navigation-panel) {
+    animation-delay: 0ms;
+}
+::view-transition-image-pair(navigation-panel) {
+    overflow: clip;
+    animation: 520ms ease-out both navigation-panel-frame;
+}
+/* Resize the frame while keeping the text in both snapshots at its original size. */
+::view-transition-old(navigation-panel), ::view-transition-new(navigation-panel) {
+    height: 100%;
+    object-fit: none;
+    object-position: left top;
+    mix-blend-mode: normal;
+}
+::view-transition-old(navigation-panel) { animation: 170ms 80ms ease-out both home-card-fade; }
+::view-transition-new(navigation-panel) { animation: 210ms 170ms ease-in reverse both home-card-fade; }
+:root.home-card-return::view-transition-image-pair(navigation-panel) { animation-direction: reverse; }
+:root.home-card-return::view-transition-old(navigation-panel) { animation: 210ms 140ms ease-in both home-card-fade; }
+:root.home-card-return::view-transition-new(navigation-panel) { animation: 170ms 270ms ease-out reverse both home-card-fade; }
+
+:root.home-card-deck {
+    --card-slide-distance-x: 100vw;
+    --card-slide-distance-y: 0px;
+}
+:root.home-card-deck::view-transition-group(dashboard-card-before),
+:root.home-card-deck::view-transition-group(dashboard-card-before-delayed),
+:root.home-card-deck::view-transition-group(dashboard-card-after),
+:root.home-card-deck::view-transition-group(dashboard-card-after-delayed) { z-index: 2; animation: none; }
+::view-transition-group(dashboard-card-before), ::view-transition-group(dashboard-card-before-delayed) {
+    --card-slide-direction: -1;
+}
+::view-transition-group(dashboard-card-after), ::view-transition-group(dashboard-card-after-delayed) {
+    --card-slide-direction: 1;
+}
+::view-transition-group(dashboard-card-before-delayed), ::view-transition-group(dashboard-card-after-delayed) {
+    --card-slide-delay: 32ms;
+}
+::view-transition-old(dashboard-card-before), ::view-transition-old(dashboard-card-before-delayed),
+::view-transition-old(dashboard-card-after), ::view-transition-old(dashboard-card-after-delayed) {
+    animation: 280ms var(--card-slide-delay, 0ms) cubic-bezier(0.55, 0, 0.75, 0.35) both dashboard-card-slide;
+}
+::view-transition-new(dashboard-card-before), ::view-transition-new(dashboard-card-before-delayed),
+::view-transition-new(dashboard-card-after), ::view-transition-new(dashboard-card-after-delayed) {
+    animation: 280ms calc(240ms - var(--card-slide-delay, 0ms)) cubic-bezier(0.55, 0, 0.75, 0.35) reverse both dashboard-card-slide;
+}
+
+@media (max-width: 899px) {
+    :root.home-card-deck {
+        --card-slide-distance-x: 0px;
+        --card-slide-distance-y: 100dvh;
+    }
+}
+@keyframes dashboard-card-slide {
+    18% {
+        translate: calc(var(--card-slide-direction) * var(--card-slide-distance-x) * -0.008)
+            calc(var(--card-slide-direction) * var(--card-slide-distance-y) * -0.008);
+        opacity: 1;
+    }
+    to {
+        translate: calc(var(--card-slide-direction) * var(--card-slide-distance-x))
+            calc(var(--card-slide-direction) * var(--card-slide-distance-y));
+        opacity: 0.6;
+    }
+}
+@keyframes navigation-panel-frame {
+    0% { background-color: transparent; box-shadow: inset 0 0 0 1px transparent; }
+    22% {
+        background-color: var(--panel-shade);
+        box-shadow: inset 4px 0 var(--theme-card-highlight), inset 0 0 0 1px var(--theme-control-edge);
+    }
+    to { background-color: transparent; box-shadow: inset 4px 0 transparent, inset 0 0 0 1px transparent; }
 }
 
 @media (max-width: 600px) {
@@ -415,7 +478,7 @@ svg { display: block; flex-shrink: 0; }
 .login-page { display: grid; align-content: center; gap: 16px; max-width: 510px; min-height: 100dvh; }
 .login-brand { display: inline-flex; justify-self: start; align-items: center; gap: 8px; min-height: 44px; padding-inline: 12px 16px; color: var(--theme-ink); }
 .login-page h1 { margin-bottom: 20px; }
-.login-page :is(.login-field, .primary-button) {
+.login-page :is(.login-field, .primary-button, .guest-signin .secondary-button) {
     border-radius: 0;
     clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
 }
@@ -441,9 +504,22 @@ svg { display: block; flex-shrink: 0; }
 }
 .login-page .login-field input:focus-visible { outline-offset: -6px; }
 .login-page .primary-button { justify-self: start; margin-top: 4px; }
-.login-page .primary-button:focus-visible { outline-color: currentColor; outline-offset: -6px; }
+.login-page :is(.primary-button, .guest-signin .secondary-button):focus-visible { outline-color: currentColor; outline-offset: -6px; }
 .login-page .guest-signin { margin-top: 12px; }
-.login-page .guest-signin .secondary-button { justify-self: start; min-height: 44px; }
+.login-page .guest-signin .secondary-button {
+    justify-self: start;
+    min-height: 44px;
+    border: 0;
+    background: var(--theme-active);
+    color: var(--theme-ink);
+}
+.login-page .guest-signin .secondary-button:hover {
+    background: var(--theme-accent-hover);
+    color: var(--theme-checkmark);
+}
+@media (forced-colors: active) {
+    .login-page .guest-signin .secondary-button { border: 1px solid currentColor; clip-path: none; }
+}
 .users-page { max-width: 1050px; overflow-wrap: anywhere; }
 .users-page h1 { margin-bottom: 24px; }
 .user-list { display: grid; gap: 20px; }

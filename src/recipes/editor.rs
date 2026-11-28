@@ -1,6 +1,7 @@
 use super::{
     create_recipe, get_recipe, update_recipe, Ingredient, RecipeContents, SaveRecipe, Section, Step,
 };
+use crate::card_navigation::{replace_page, NavigationLink};
 use crate::Route;
 use dioxus::prelude::*;
 
@@ -169,7 +170,8 @@ pub(crate) fn NewRecipe() -> Element {
     rsx! {
         document::Title { "Lavemill · Add recipe" }
         main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
-            Link { class: "recipe-back-link", to: Route::Recipes {}, "All recipes" }
+            "data-navigation-page": "/recipes/new", "data-navigation-parent": "/recipes",
+            NavigationLink { class: "recipe-back-link", to: Route::Recipes {}, "All recipes" }
             header { class: "recipe-heading", h1 { "Add recipe" } }
             RecipeEditor {}
         }
@@ -186,8 +188,9 @@ fn EditRecipeContent(id: i64) -> Element {
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
         document::Title { "Lavemill · Edit recipe" }
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipe-edit-id": "{id}",
-            Link { class: "recipe-back-link", to: Route::RecipeDetail { id }, "Back to recipe" }
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+            "data-navigation-page": "/recipes/{id}/edit", "data-navigation-parent": "/recipes/{id}",
+            NavigationLink { class: "recipe-back-link", to: Route::RecipeDetail { id }, "Back to recipe" }
             header { class: "recipe-heading", h1 { "Edit recipe" } }
             match recipe.read().as_ref() {
                 Some(Ok(Some(recipe))) => rsx! {
@@ -272,7 +275,7 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
                     None => create_recipe(draft).await,
                 };
                 match result {
-                    Ok(SaveRecipe::Saved(id)) => { navigator.replace(Route::RecipeDetail { id }); }
+                    Ok(SaveRecipe::Saved(id)) => { replace_page(navigator, Route::RecipeDetail { id }).await; }
                     Ok(SaveRecipe::Invalid(message)) => error.set(message),
                     Ok(SaveRecipe::Conflict) => {
                         conflict.set(true);

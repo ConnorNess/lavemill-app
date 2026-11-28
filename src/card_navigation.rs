@@ -3,18 +3,16 @@ use crate::{
     Route,
 };
 use dioxus::prelude::*;
+use dioxus::router::Navigator;
 
 #[component]
 pub(crate) fn HomeCard(
     to: Route,
     label: &'static str,
-    page: &'static str,
     heading: &'static str,
     #[props(default)] scrollable: bool,
     children: Element,
 ) -> Element {
-    let navigator = use_navigator();
-    let destination = to.clone();
     let preview = use_theme_preview(&to);
     rsx! {
         section {
@@ -28,20 +26,11 @@ pub(crate) fn HomeCard(
             },
             onfocusin: move |_| preview(),
             div { class: "home-card-content",
-                Link {
+                NavigationLink {
                     class: "card-hit-area",
                     to,
                     aria_label: label,
-                    "data-card-page": page,
-                    onclick_only: true,
-                    onclick: move |_| {
-                        let destination = destination.clone();
-                        spawn(async move {
-                            if begin_transition(page, false, None).await {
-                                navigator.push(destination);
-                            }
-                        });
-                    },
+                    anchor: true,
                 }
                 {children}
             }
@@ -74,26 +63,14 @@ pub(crate) fn ThemePreviewTile(to: Route, children: Element) -> Element {
 
 #[component]
 pub(crate) fn UsersLink() -> Element {
-    let navigator = use_navigator();
-    let opening_users = use_route::<Route>() != (Route::Users {});
     rsx! {
         ThemePreviewTile { to: Route::Users {},
-            Link {
+            NavigationLink {
                 class: "account-icon",
                 to: Route::Users {},
                 aria_label: "Users",
                 title: "Users",
-                "data-home-return-anchor": "users",
-                onclick_only: opening_users,
-                onclick: move |_| {
-                    if opening_users {
-                        spawn(async move {
-                            if begin_transition("users", false, None).await {
-                                navigator.push(Route::Users {});
-                            }
-                        });
-                    }
-                },
+                anchor: true,
                 crate::Icon { kind: "users" }
             }
         }
@@ -102,24 +79,12 @@ pub(crate) fn UsersLink() -> Element {
 
 #[component]
 pub(crate) fn RecipesLink() -> Element {
-    let navigator = use_navigator();
-    let opening_recipes = use_route::<Route>() != (Route::Recipes {});
     rsx! {
         ThemePreviewTile { to: Route::Recipes {},
-            Link {
+            NavigationLink {
                 class: "header-tile recipes-link",
                 to: Route::Recipes {},
-                "data-home-return-anchor": "recipes",
-                onclick_only: opening_recipes,
-                onclick: move |_| {
-                    if opening_recipes {
-                        spawn(async move {
-                            if begin_transition("recipes", false, None).await {
-                                navigator.push(Route::Recipes {});
-                            }
-                        });
-                    }
-                },
+                anchor: true,
                 crate::Icon { kind: "recipes" }
                 span { "Recipes" }
             }
@@ -128,86 +93,75 @@ pub(crate) fn RecipesLink() -> Element {
 }
 
 #[component]
-pub(crate) fn RecipeCardLink(id: i64, title: String) -> Element {
-    let navigator = use_navigator();
-    rsx! {
-        Link {
-            class: "recipe-card surface-panel",
-            to: Route::RecipeDetail { id },
-            "data-recipe-card-id": "{id}",
-            onclick_only: true,
-            onclick: move |_| {
-                spawn(async move {
-                    if begin_transition("recipes", false, Some(id)).await {
-                        navigator.push(Route::RecipeDetail { id });
-                    }
-                });
-            },
-            "{title}"
-        }
-    }
-}
-
-#[component]
-pub(crate) fn EditRecipeLink(id: i64) -> Element {
-    let navigator = use_navigator();
-    rsx! {
-        Link {
-            class: "recipe-action recipe-control secondary-button",
-            to: Route::EditRecipe { id },
-            "data-recipe-edit-link-id": "{id}",
-            onclick_only: true,
-            onclick: move |_| {
-                spawn(async move {
-                    if begin_transition("recipe-edit", false, Some(id)).await {
-                        navigator.push(Route::EditRecipe { id });
-                    }
-                });
-            },
-            crate::Icon { kind: "pencil" }
-            "Edit recipe"
-        }
-    }
-}
-
-#[component]
 pub(crate) fn HomeLink() -> Element {
-    let navigator = use_navigator();
-    let page = match use_route::<Route>() {
-        Route::Todos {} => Some("todos"),
-        Route::Shopping {} => Some("shopping"),
-        Route::Calendar { .. } => Some("calendar"),
-        Route::Recipes {}
-        | Route::NewRecipe {}
-        | Route::RecipeDetail { .. }
-        | Route::EditRecipe { .. } => Some("recipes"),
-        Route::Users {} => Some("users"),
-        Route::Home {} | Route::Login { .. } => None,
-    };
     rsx! {
-        Link {
+        NavigationLink {
             class: "header-tile brand",
             to: Route::Home {},
-            onclick_only: page.is_some(),
-            onclick: move |_| {
-                if let Some(page) = page {
-                    spawn(async move {
-                        if begin_transition(page, true, None).await {
-                            navigator.push(Route::Home {});
-                        }
-                    });
-                }
-            },
             crate::Icon { kind: "home" }
             span { "lavemill" }
         }
     }
 }
 
-async fn begin_transition(page: &str, returning_home: bool, recipe_id: Option<i64>) -> bool {
-    let mut transition = document::eval(include_str!("../assets/card-navigation.js"));
-    let recipe_id = recipe_id.map(|id| id.to_string());
-    if transition.send((page, returning_home, recipe_id)).is_err() {
+#[component]
+pub(crate) fn NavigationLink(
+    to: Route,
+    class: Option<&'static str>,
+    aria_label: Option<&'static str>,
+    title: Option<&'static str>,
+    #[props(default)] anchor: bool,
+    children: Element,
+) -> Element {
+    let navigator = use_navigator();
+    let current = use_route::<Route>() == to;
+    let destination = to.clone();
+    let path = to.to_string();
+    let anchor_path = anchor.then(|| path.split_once('?').map_or(path.as_str(), |(path, _)| path));
+    rsx! {
+        Link {
+            class: class.map(str::to_owned),
+            aria_label,
+            title,
+            "data-navigation-anchor": anchor_path,
+            to,
+            onclick_only: true,
+            onclick: move |_| {
+                if !current {
+                    let destination = destination.clone();
+                    spawn(async move {
+                        if begin_transition(&destination, false).await {
+                            navigator.push(destination);
+                        }
+                    });
+                }
+            },
+            {children}
+        }
+    }
+}
+
+pub(crate) async fn replace_page(navigator: Navigator, to: Route) {
+    if begin_transition(&to, true).await {
+        navigator.replace(to);
+    }
+}
+
+async fn begin_transition(destination: &Route, replacing: bool) -> bool {
+    let mut transition = document::eval(
+        r#"
+        const [path, replacing] = await dioxus.recv();
+        if (window.lavemillNavigate) {
+            window.lavemillNavigate(path, () => dioxus.send(true), { replacing, blocked: () => dioxus.send(false) });
+        } else {
+            dioxus.send(true);
+        }
+        "#,
+    );
+    if transition
+        .send((destination.to_string(), replacing))
+        .is_err()
+    {
         return true;
     }
     transition.recv::<bool>().await.unwrap_or(true)
