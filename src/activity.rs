@@ -222,19 +222,21 @@ pub(super) fn ActivitySection() -> Element {
                                 for activity in &row.activities {
                                     li { class: "activity-item",
                                         if activity.provider == "Plex" {
-                                            span { class: "activity-provider activity-provider-plex",
+                                            span { class: "activity-provider",
                                                 crate::Icon { kind: "Plex" }
                                                 "Plex"
                                             }
                                         }
                                         if activity.provider == "Steam" {
-                                            span { class: "activity-provider activity-provider-steam",
-                                                img { src: STEAM_ICON, alt: "" }
+                                            span { class: "activity-provider",
+                                                span { class: "activity-steam-icon", aria_hidden: "true",
+                                                    style: "--activity-steam-icon: url('{STEAM_ICON}')",
+                                                }
                                                 "Steam"
                                             }
                                         }
                                         if activity.provider != "Plex" && activity.provider != "Steam" {
-                                            span { class: "activity-provider activity-provider-other",
+                                            span { class: "activity-provider",
                                                 span { class: "activity-provider-initial", aria_hidden: "true",
                                                     "{activity.provider.chars().next().unwrap_or(' ')}"
                                                 }
