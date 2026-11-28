@@ -158,10 +158,10 @@ pub(super) fn Recipes() -> Element {
     let recipes = use_server_future(list_recipes)?;
     rsx! {
         document::Title { "Lavemill · Recipes" }
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipes-index": "",
             header { class: "recipe-heading",
                 h1 { "Recipes" }
-                Link { class: "recipe-action primary-button", to: Route::NewRecipe {}, "Add recipe" }
+                Link { class: "recipe-action recipe-control primary-button", to: Route::NewRecipe {}, "Add recipe" }
             }
             match recipes.read().as_ref() {
                 Some(Ok(cards)) if cards.is_empty() => rsx! { p { "No recipes yet." } },
@@ -169,7 +169,7 @@ pub(super) fn Recipes() -> Element {
                     ul { class: "recipe-cards",
                         for card in cards {
                             li { key: "{card.id}",
-                                Link { class: "recipe-card surface-panel", to: Route::RecipeDetail { id: card.id }, "{card.title}" }
+                                crate::card_navigation::RecipeCardLink { id: card.id, title: card.title.clone() }
                             }
                         }
                     }
@@ -190,15 +190,14 @@ pub(super) fn RecipeDetail(id: i64) -> Element {
 fn RecipeDetailContent(id: i64) -> Element {
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
-        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1",
-            Link { class: "recipe-back-link", to: Route::Recipes {}, "All recipes" }
+        main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipe-detail-id": "{id}",
             match recipe.read().as_ref() {
                 Some(Ok(Some(recipe))) => rsx! {
                     document::Title { "Lavemill · {recipe.contents.title}" }
                     header { class: "recipe-heading",
                         h1 { "{recipe.contents.title}" }
                         div { class: "recipe-detail-actions",
-                            Link { class: "recipe-action secondary-button", to: Route::EditRecipe { id }, "Edit recipe" }
+                            crate::card_navigation::EditRecipeLink { id }
                             DeleteRecipe { id, revision: recipe.revision, title: recipe.contents.title.clone() }
                         }
                     }
@@ -224,7 +223,7 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
     rsx! {
         button {
             r#type: "button",
-            class: "recipe-action secondary-button",
+            class: "recipe-action recipe-control secondary-button",
             onclick: move |_| {
                 confirmation.set(String::new());
                 if !stale() {
@@ -269,6 +268,7 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
                     label {
                         "Type “{title}” to confirm"
                         input {
+                            class: "recipe-field",
                             r#type: "text", autocomplete: "off", spellcheck: false,
                             value: "{confirmation}", disabled: stale(),
                             oninput: move |event| confirmation.set(event.value()),
@@ -279,12 +279,12 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
                     }
                     div { class: "recipe-detail-actions recipe-delete-actions",
                         button {
-                            r#type: "button", class: "secondary-button",
+                            r#type: "button", class: "recipe-control secondary-button",
                             onclick: move |_| { let _ = document::eval(r#"document.getElementById("recipe-delete-dialog").close();"#); },
                             "Cancel"
                         }
                         if matches_title && !stale() {
-                            button { r#type: "submit", class: "primary-button",
+                            button { r#type: "submit", class: "recipe-control primary-button",
                                 if pending() { "Deleting…" } else { "Delete recipe" }
                             }
                         }
@@ -316,12 +316,12 @@ fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
                 for section in &contents.ingredients {
                     div { class: if section.heading.is_some() { "recipe-subsection" },
                         if let Some(heading) = &section.heading { h3 { "{heading}" } }
-                        ul {
+                        ul { class: "recipe-ingredient-list",
                             for ingredient in &section.entries {
                                 li {
-                                    "{ingredient.name}"
+                                    span { class: "recipe-ingredient-name", "{ingredient.name}" }
                                     if let Some(quantity) = &ingredient.quantity {
-                                        span { class: "row-note", " · {quantity}" }
+                                        span { class: "recipe-ingredient-quantity", "{quantity}" }
                                     }
                                 }
                             }
@@ -334,7 +334,7 @@ fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
                 for (start, section) in step_numbers {
                     div { class: if section.heading.is_some() { "recipe-subsection" },
                         if let Some(heading) = &section.heading { h3 { "{heading}" } }
-                        ol { start: start as i64,
+                        ol { class: "recipe-step-list", start: start as i64,
                             for step in &section.entries {
                                 li {
                                     div { class: "recipe-text", "{step.instructions}" }

@@ -181,24 +181,34 @@ fn write_activity_profile(
     Ok(())
 }
 
+#[derive(Deserialize, Serialize)]
+enum CreateUser {
+    Created(User),
+    Invalid(String),
+}
+
 #[post("/api/users/create")]
 async fn create_user(
     username: String,
     first: String,
     last: String,
     password: String,
-) -> Result<Option<String>, ServerFnError> {
+) -> Result<CreateUser, ServerFnError> {
     require_admin()?;
     let result = crate::auth::server::run_blocking(move || {
         let (username, first, last) = crate::accounts::details(&username, &first, &last)?;
         let hash = crate::accounts::hash_password(&password)?;
-        crate::auth::server::connection()?.execute(
-            "INSERT INTO users (username, first_name, last_name, password_hash) VALUES (?1, ?2, ?3, ?4)",
+        let id = crate::auth::server::connection()?.query_row(
+            "INSERT INTO users (username, first_name, last_name, password_hash) VALUES (?1, ?2, ?3, ?4) RETURNING id",
             rusqlite::params![username, first, last, hash],
+            |row| row.get(0),
         ).map_err(crate::accounts::save_error)?;
-        Ok(())
+        Ok(User { id, username, first_name: first, last_name: last, is_admin: false, plex_profile_id: None, steam_id: None })
     }).await;
-    Ok(result.err().map(str::to_owned))
+    Ok(match result {
+        Ok(user) => CreateUser::Created(user),
+        Err(error) => CreateUser::Invalid(error.into()),
+    })
 }
 
 #[post("/api/users/edit")]
@@ -247,8 +257,21 @@ fn require_admin() -> Result<(), ServerFnError> {
 
 #[component]
 pub fn Users() -> Element {
-    let mut users = use_server_future(list_users)?;
+    let users = use_server_future(list_users)?;
     let profiles = use_resource(plex_profiles);
+    let mut selected = use_signal(|| None::<i64>);
+    let mut adding = use_signal(|| false);
+    let mut added = use_signal(|| false);
+    let mut focus_after_add = use_signal(|| None::<&'static str>);
+    let pending = use_signal(|| false);
+    let directory = use_context_provider(|| UserDirectory(users));
+    use_context_provider(|| pending);
+    use_effect(move || {
+        if let Some(id) = focus_after_add() {
+            focus_after_add.set(None);
+            let _ = document::eval(&format!("document.getElementById({id:?})?.focus()"));
+        }
+    });
     let result = users.read();
     rsx! {
         main { id: "main", class: "dashboard interior-page users-page", tabindex: "-1",
@@ -256,22 +279,84 @@ pub fn Users() -> Element {
             h1 { "Users" }
             match result.as_ref() {
                 Some(Ok(accounts)) => rsx! {
-                    div { class: "users-grid",
-                        section { class: "add-task-panel surface-panel",
-                            h2 { "Add user" }
-                            UserDetails { on_saved: move |_| users.restart() }
-                        }
-                        div { class: "user-list",
-                            for user in accounts {
-                                section { key: "{user.id}", class: "add-task-panel surface-panel",
-                                    h2 {
-                                        if user.is_admin { "Your admin account" }
-                                        else { "Account details" }
+                    div { class: "user-list",
+                        div { class: "users-toolbar",
+                            div { class: "user-selector",
+                                label { r#for: "users-account", "User" }
+                                crate::select_field::SelectField {
+                                    id: "users-account",
+                                    label: "User",
+                                    placeholder: "Choose a user",
+                                    value: selected().map(|id| id.to_string()).unwrap_or_default(),
+                                    options: accounts.iter().map(|user| (
+                                        user.id.to_string(),
+                                        format!("{} {} ({})", user.first_name, user.last_name, user.username),
+                                    )).collect(),
+                                    disabled: pending() || adding(),
+                                    on_change: move |value: String| {
+                                        if !*pending.peek() && !*adding.peek() {
+                                            selected.set(value.parse().ok());
+                                            added.set(false);
+                                        }
+                                    },
+                                }
+                            }
+                            button {
+                                id: "users-add-action", class: "primary-button", r#type: "button",
+                                aria_expanded: adding(), aria_controls: "users-workspace", disabled: pending() || adding(),
+                                onclick: move |_| {
+                                    if !*pending.peek() {
+                                        added.set(false);
+                                        adding.set(true);
                                     }
-                                    UserDetails { user: user.clone(), on_saved: |_| {} }
-                                    PlexProfileForm { id: user.id, initial: user.plex_profile_id, profiles }
-                                    SteamProfileForm { id: user.id, initial: user.steam_id.clone() }
-                                    PasswordReset { id: user.id, is_admin: user.is_admin }
+                                },
+                                "Add user"
+                            }
+                        }
+                        if added() { p { class: "form-feedback", role: "status", "User added." } }
+                        div { id: "users-workspace",
+                            if adding() {
+                                section { class: "user-add-card add-task-panel surface-panel",
+                                    h2 { "Add user" }
+                                    UserDetails { on_created: move |user: User| {
+                                        let id = user.id;
+                                        directory.insert(user);
+                                        selected.set(Some(id));
+                                        adding.set(false);
+                                        added.set(true);
+                                        focus_after_add.set(Some("users-account"));
+                                    } }
+                                    button { class: "secondary-button users-cancel-add", r#type: "button", disabled: pending(),
+                                        onclick: move |_| {
+                                            if !*pending.peek() {
+                                                adding.set(false);
+                                                focus_after_add.set(Some("users-add-action"));
+                                            }
+                                        },
+                                        "Cancel"
+                                    }
+                                }
+                            } else if let Some(user) = accounts.iter().find(|user| Some(user.id) == selected()) {
+                                section { key: "{user.id}", class: "user-account-card add-task-panel surface-panel", aria_labelledby: "user-account-title",
+                                    header { class: "users-card-heading",
+                                        h2 { id: "user-account-title", "{user.first_name} {user.last_name}" }
+                                        if user.is_admin { p { "Your admin account" } }
+                                    }
+                                    div { class: "user-account-sections",
+                                        section {
+                                            h3 { "Account details" }
+                                            UserDetails { user: user.clone(), on_created: |_| {} }
+                                        }
+                                        section { class: "user-profiles",
+                                            h3 { "Linked profiles" }
+                                            PlexProfileForm { id: user.id, initial: user.plex_profile_id, profiles }
+                                            SteamProfileForm { id: user.id, initial: user.steam_id.clone() }
+                                        }
+                                        section { class: "user-password-reset",
+                                            h3 { "Reset password" }
+                                            PasswordReset { id: user.id, is_admin: user.is_admin }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -284,6 +369,36 @@ pub fn Users() -> Element {
     }
 }
 
+#[derive(Clone, Copy)]
+struct UserDirectory(Resource<Result<Vec<User>, ServerFnError>>);
+
+impl UserDirectory {
+    fn insert(mut self, user: User) {
+        if let Some(Ok(accounts)) = self.0.write().as_mut() {
+            accounts.push(user);
+            sort_users(accounts);
+        }
+    }
+
+    fn update(mut self, id: i64, update: impl FnOnce(&mut User)) {
+        let mut result = self.0.write();
+        if let Some(Ok(accounts)) = result.as_mut() {
+            if let Some(user) = accounts.iter_mut().find(|user| user.id == id) {
+                update(user);
+                sort_users(accounts);
+            }
+        }
+    }
+}
+
+fn sort_users(accounts: &mut [User]) {
+    accounts.sort_by(|a, b| {
+        b.is_admin
+            .cmp(&a.is_admin)
+            .then_with(|| a.username.cmp(&b.username))
+    });
+}
+
 #[component]
 fn PlexProfileForm(
     id: i64,
@@ -293,6 +408,7 @@ fn PlexProfileForm(
     let mut saved = use_signal(|| initial);
     let mut selected = use_signal(|| initial);
     let submission = use_form_submission();
+    let directory = use_context::<UserDirectory>();
     let profiles = profiles.read();
     let (choices, hint) = match profiles.as_ref() {
         Some(Ok(Some(choices))) => (choices.as_slice(), None),
@@ -303,6 +419,23 @@ fn PlexProfileForm(
     let missing = saved().filter(|id| !choices.iter().any(|profile| profile.id == *id));
     let value = selected().map(|id| id.to_string()).unwrap_or_default();
     let can_save = selected() != saved();
+    let mut options = vec![(String::new(), "No Plex profile".to_owned())];
+    if let Some(id) = missing {
+        options.push((id.to_string(), format!("Linked profile ({id})")));
+    }
+    options.extend(choices.iter().map(|profile| {
+        let name = if choices
+            .iter()
+            .filter(|other| other.name.eq_ignore_ascii_case(&profile.name))
+            .count()
+            > 1
+        {
+            format!("{} ({})", profile.name, profile.id)
+        } else {
+            profile.name.clone()
+        };
+        (profile.id.to_string(), name)
+    }));
 
     rsx! {
         form { class: "reset-form", method: "post", onmounted: move |_| submission.mounted(), onsubmit: move |event| {
@@ -314,27 +447,15 @@ fn PlexProfileForm(
                 submission.finish();
                 if matches!(result, Ok(None)) {
                     saved.set(profile_id);
+                    directory.update(id, |user| user.plex_profile_id = profile_id);
                 }
                 submission.report(result, "Plex profile saved.");
             }
         },
             label { r#for: "plex-profile-{id}", "Plex profile" }
-            select { id: "plex-profile-{id}", value,
+            crate::select_field::SelectField { id: format!("plex-profile-{id}"), label: "Plex profile", value, options,
                 disabled: submission.disabled() || (choices.is_empty() && saved().is_none()),
-                onchange: move |event| selected.set(event.value().parse().ok()),
-                option { value: "", "No Plex profile" }
-                if let Some(id) = missing {
-                    option { value: "{id}", "Linked profile ({id})" }
-                }
-                for profile in choices {
-                    option { key: "{profile.id}", value: "{profile.id}",
-                        if choices.iter().filter(|other| other.name.eq_ignore_ascii_case(&profile.name)).count() > 1 {
-                            "{profile.name} ({profile.id})"
-                        } else {
-                            "{profile.name}"
-                        }
-                    }
-                }
+                on_change: move |value: String| selected.set(value.parse().ok()),
             }
             if let Some(hint) = hint {
                 p { "{hint}" }
@@ -350,6 +471,7 @@ fn SteamProfileForm(id: i64, initial: Option<String>) -> Element {
     let mut saved = use_signal(|| initial.unwrap_or_default());
     let mut input = use_signal(|| saved());
     let submission = use_form_submission();
+    let directory = use_context::<UserDirectory>();
 
     rsx! {
         form { class: "reset-form", method: "post", onmounted: move |_| submission.mounted(), onsubmit: move |event| {
@@ -360,6 +482,7 @@ fn SteamProfileForm(id: i64, initial: Option<String>) -> Element {
                 let result = save_steam_profile(id, steam_id.clone()).await;
                 submission.finish();
                 if matches!(result, Ok(None)) {
+                    directory.update(id, |user| user.steam_id = (!steam_id.is_empty()).then(|| steam_id.clone()));
                     input.set(steam_id.clone());
                     saved.set(steam_id);
                 }
@@ -381,7 +504,7 @@ fn SteamProfileForm(id: i64, initial: Option<String>) -> Element {
 }
 
 #[component]
-fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>) -> Element {
+fn UserDetails(#[props(default)] user: Option<User>, on_created: EventHandler<User>) -> Element {
     let id = user.as_ref().map(|user| user.id);
     let form_id = id.map_or_else(|| "new-user".to_owned(), |id| format!("user-{id}"));
     let mut username = use_signal(|| {
@@ -398,45 +521,57 @@ fn UserDetails(#[props(default)] user: Option<User>, on_saved: EventHandler<()>)
     });
     let mut password = use_signal(String::new);
     let submission = use_form_submission();
+    let directory = use_context::<UserDirectory>();
 
     rsx! {
         form { method: "post", onmounted: move |_| submission.mounted(), onsubmit: move |event| {
             event.prevent_default();
             async move {
                 if !submission.begin() { return; }
-                let result = match id {
-                    Some(id) => edit_user(id, username(), first(), last()).await,
-                    None => create_user(username(), first(), last(), password()).await,
+                let (submitted_username, submitted_first, submitted_last) = (username(), first(), last());
+                let Some(id) = id else {
+                    let result = create_user(submitted_username, submitted_first, submitted_last, password()).await;
+                    submission.finish();
+                    match result {
+                        Ok(CreateUser::Created(user)) => {
+                            password.set(String::new());
+                            on_created.call(user);
+                        }
+                        Ok(CreateUser::Invalid(message)) => submission.report(Ok(Some(message)), "User added."),
+                        Err(error) => submission.report(Err(error), "User added."),
+                    }
+                    return;
                 };
+                let result = edit_user(id, submitted_username.clone(), submitted_first.clone(), submitted_last.clone()).await;
                 submission.finish();
                 if matches!(result, Ok(None)) {
-                    if id.is_none() {
-                        username.set(String::new());
-                        first.set(String::new());
-                        last.set(String::new());
-                        password.set(String::new());
-                    } else {
-                        username.set(username().trim().to_ascii_lowercase());
-                        first.set(first().trim().to_owned());
-                        last.set(last().trim().to_owned());
-                    }
-                    on_saved.call(());
+                    let saved_username = submitted_username.trim().to_ascii_lowercase();
+                    let saved_first = submitted_first.trim().to_owned();
+                    let saved_last = submitted_last.trim().to_owned();
+                    directory.update(id, |user| {
+                        user.username = saved_username.clone();
+                        user.first_name = saved_first.clone();
+                        user.last_name = saved_last.clone();
+                    });
+                    username.set(saved_username);
+                    first.set(saved_first);
+                    last.set(saved_last);
                 }
-                let success = if id.is_some() { "Details saved." } else { "User added." };
-                submission.report(result, success);
+                submission.report(result, "Details saved.");
             }
         },
             label { r#for: "{form_id}-username", "Username" }
-            input { id: "{form_id}-username", name: "username", autocomplete: "off", value: "{username}", required: true, maxlength: "40", autocapitalize: "none", spellcheck: "false",
+            input { id: "{form_id}-username", name: "username", autocomplete: "off", value: "{username}", required: true, maxlength: "40", autocapitalize: "none", spellcheck: "false", readonly: (submission.pending)(),
+                onmounted: move |event| async move { if id.is_none() { let _ = event.set_focus(true).await; } },
                 oninput: move |event| username.set(event.value()) }
             label { r#for: "{form_id}-first", "First name" }
-            input { id: "{form_id}-first", name: "first_name", autocomplete: "off", value: "{first}", required: true, maxlength: "80",
+            input { id: "{form_id}-first", name: "first_name", autocomplete: "off", value: "{first}", required: true, maxlength: "80", readonly: (submission.pending)(),
                 oninput: move |event| first.set(event.value()) }
             label { r#for: "{form_id}-last", "Last name" }
-            input { id: "{form_id}-last", name: "last_name", autocomplete: "off", value: "{last}", required: true, maxlength: "80",
+            input { id: "{form_id}-last", name: "last_name", autocomplete: "off", value: "{last}", required: true, maxlength: "80", readonly: (submission.pending)(),
                 oninput: move |event| last.set(event.value()) }
             if id.is_none() {
-                PasswordField { id: "new-user-password".to_owned(), label: "Password", password }
+                PasswordField { id: "new-user-password".to_owned(), label: "Password", password, readonly: (submission.pending)() }
             }
             button { class: "primary-button", r#type: "submit", disabled: submission.disabled(),
                 if id.is_some() { "Save details" } else { "Add user" }
@@ -469,7 +604,7 @@ fn PasswordReset(id: i64, is_admin: bool) -> Element {
                     submission.report(result, "Password reset. All sessions for this user were signed out.");
                 }
             },
-            PasswordField { id: format!("reset-password-{id}"), label: "New password", password }
+            PasswordField { id: format!("reset-password-{id}"), label: "New password", password, readonly: (submission.pending)() }
             button { class: "undo-button", r#type: "submit", disabled: submission.disabled(), "Reset password" }
             FormNotice { notice: (submission.notice)() }
         }
@@ -477,11 +612,16 @@ fn PasswordReset(id: i64, is_admin: bool) -> Element {
 }
 
 #[component]
-fn PasswordField(id: String, label: &'static str, mut password: Signal<String>) -> Element {
+fn PasswordField(
+    id: String,
+    label: &'static str,
+    mut password: Signal<String>,
+    readonly: bool,
+) -> Element {
     rsx! {
         label { r#for: "{id}", "{label}" }
         input { id: "{id}", name: "password", r#type: "password", autocomplete: "new-password",
-            value: "{password}", required: true,
+            value: "{password}", required: true, readonly,
             oninput: move |event| password.set(event.value()) }
     }
 }
@@ -496,7 +636,7 @@ struct FormSubmission {
 fn use_form_submission() -> FormSubmission {
     FormSubmission {
         ready: use_signal(|| false),
-        pending: use_signal(|| false),
+        pending: use_context::<Signal<bool>>(),
         notice: use_signal(|| None),
     }
 }

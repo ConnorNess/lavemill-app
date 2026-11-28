@@ -1,4 +1,4 @@
-const [page, returningHome] = await dioxus.recv();
+const [page, returningHome, recipeId] = await dioxus.recv();
 const root = document.documentElement;
 const activeClass = "home-card-transition";
 const returnClass = "home-card-return";
@@ -9,12 +9,22 @@ if (root.classList.contains(activeClass)) {
 }
 
 const pageKey = CSS.escape(page);
+const recipeKey = recipeId == null ? null : CSS.escape(recipeId);
+const openingRecipeEditor = page === "recipe-edit";
 const findCard = () => document.querySelector(`[data-card-page="${pageKey}"]`)
     ?.closest(".dashboard-card");
 const findHeaderAnchor = () => document.querySelector(`[data-home-return-anchor="${pageKey}"]`);
-const openingUsers = page === "users" && !returningHome;
+const openingFromHeader = !returningHome && recipeKey === null && (page === "users" || page === "recipes");
 const interiorPage = document.querySelector("main#main.interior-page");
-const source = returningHome ? interiorPage : openingUsers ? findHeaderAnchor() : findCard();
+let source;
+if (returningHome) {
+    source = interiorPage;
+} else if (recipeKey !== null) {
+    const anchor = openingRecipeEditor ? "data-recipe-edit-link-id" : "data-recipe-card-id";
+    source = document.querySelector(`[${anchor}="${recipeKey}"]`);
+} else {
+    source = openingFromHeader ? findHeaderAnchor() : findCard();
+}
 if (!source || !document.startViewTransition ||
     matchMedia("(prefers-reduced-motion: reduce)").matches) {
     dioxus.send(true);
@@ -24,7 +34,14 @@ if (!source || !document.startViewTransition ||
 const bounds = source.getBoundingClientRect();
 const viewportWidth = root.clientWidth;
 const viewportHeight = root.clientHeight;
-const destinationSelector = returningHome ? "main.home-dashboard" : `main#main.${pageKey}-page`;
+let destinationPage = `.${pageKey}-page`;
+if (recipeKey !== null) {
+    const destination = openingRecipeEditor ? "data-recipe-edit-id" : "data-recipe-detail-id";
+    destinationPage = `[${destination}="${recipeKey}"]`;
+} else if (page === "recipes") {
+    destinationPage = "[data-recipes-index]";
+}
+const destinationSelector = returningHome ? "main.home-dashboard" : `main#main${destinationPage}`;
 const properties = ["--card-reveal-x", "--card-reveal-y", "--card-reveal-radius"];
 const taskSelector = "[data-task-transition-id]";
 const visibleTasks = new Set();
@@ -47,7 +64,7 @@ const nameTaskRow = (row) => {
     row.style.viewTransitionName = `home-card-task-${row.dataset.taskTransitionId}`;
     namedRows.push(row);
 };
-const outgoingPage = openingUsers ? interiorPage : null;
+const outgoingPage = openingFromHeader || recipeKey !== null ? interiorPage : null;
 const outgoingClass = "home-card-source";
 
 root.classList.add(activeClass);
@@ -102,7 +119,10 @@ try {
             finish();
         };
         const observer = new MutationObserver(findPage);
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, {
+            childList: true, subtree: true, attributes: true,
+            attributeFilter: ["data-recipes-index", "data-recipe-detail-id", "data-recipe-edit-id"],
+        });
         const timeout = setTimeout(() => {
             transition.skipTransition();
             finish();

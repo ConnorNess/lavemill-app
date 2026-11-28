@@ -12,6 +12,7 @@ mod card_navigation;
 mod homelab;
 #[cfg(feature = "server")]
 mod household_time;
+mod select_field;
 mod theme;
 mod users;
 use users::Users;
@@ -130,12 +131,7 @@ fn HouseholdLayout() -> Element {
         header { class: "site-header", "data-theme": theme.name(),
             div { class: "header-inner",
                 card_navigation::HomeLink {}
-                card_navigation::ThemePreviewTile { to: Route::Recipes {},
-                    Link { class: "header-tile recipes-link", to: Route::Recipes {}, "data-home-return-anchor": "recipes",
-                        Icon { kind: "recipes" }
-                        span { "Recipes" }
-                    }
-                }
+                card_navigation::RecipesLink {}
                 div { class: if account_open() { "account-menu is-open" } else { "account-menu" },
                     onkeydown: move |event| {
                         if event.key() == Key::Escape {
@@ -209,11 +205,18 @@ fn Icon(kind: &'static str) -> Element {
     let path = match kind {
         "home" => "M3 10 12 3l9 7M5 9v11h14V9M9 20v-7h6v7",
         "tasks" => "m3 6 2 2 3-4M11 6h10M3 13l2 2 3-4M11 13h10M4 20h3M11 20h10",
+        "description" => "M4 5h16M4 10h16M4 15h16M4 20h10",
+        "chevron-down" => "m6 9 6 6 6-6",
+        "pencil" => "m14 6 4 4M4 20l5-1 11-11a2.8 2.8 0 0 0-4-4L5 15l-1 5Z",
+        "trash" => "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7",
+        "check" => "m5 12 4 4L19 6",
+        "close" => "m6 6 12 12M18 6 6 18",
         "shopping" => "M3 3h2l3 12h11l2-8H6M9 20h.01M18 20h.01",
         "calendar" => {
             "M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2M7 14h2M13 14h2M7 18h2"
         }
         "users" => "M20 21a8 8 0 0 0-16 0M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+        "lock" => "M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5zM12 14v3",
         "recipes" => "M12 7c-3-2-6-2-9-1v13c3-1 6-1 9 1 3-2 6-2 9-1V6c-3-1-6-1-9 1Zm0 0v13",
         "Seerr" => {
             "M21 12s-3.5 6-9 6-9-6-9-6 3.5-6 9-6 9 6 9 6ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"

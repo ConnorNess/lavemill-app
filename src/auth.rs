@@ -41,10 +41,16 @@ pub fn Login(error: Option<String>) -> Element {
             section { class: "add-task-panel surface-panel", aria_labelledby: "sign-in-heading",
                 h1 { id: "sign-in-heading", "Sign in" }
                 form { action: "/auth/login", method: "post",
-                    label { r#for: "login-username", "Username" }
-                    input { id: "login-username", name: "username", autocomplete: "username", maxlength: "40", required: true }
-                    label { r#for: "login-password", "Password" }
-                    input { id: "login-password", name: "password", r#type: "password", autocomplete: "current-password", required: true }
+                    label { class: "login-field", r#for: "login-username",
+                        span { class: "login-field-icon", crate::Icon { kind: "users" } }
+                        span { class: "sr-only", "Username" }
+                        input { id: "login-username", name: "username", autocomplete: "username", maxlength: "40", required: true }
+                    }
+                    label { class: "login-field", r#for: "login-password",
+                        span { class: "login-field-icon", crate::Icon { kind: "lock" } }
+                        span { class: "sr-only", "Password" }
+                        input { id: "login-password", name: "password", r#type: "password", autocomplete: "current-password", required: true }
+                    }
                     if let Some(message) = message {
                         p { class: "form-error", role: "alert", "{message}" }
                     }
