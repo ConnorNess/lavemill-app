@@ -283,22 +283,22 @@ pub fn Users() -> Element {
                         div { class: "users-toolbar",
                             div { class: "user-selector",
                                 label { r#for: "users-account", "User" }
-                                select {
+                                crate::select_field::SelectField {
                                     id: "users-account",
+                                    label: "User",
+                                    placeholder: "Choose a user",
                                     value: selected().map(|id| id.to_string()).unwrap_or_default(),
-                                    disabled: pending() || adding() || accounts.is_empty(),
-                                    onchange: move |event| {
+                                    options: accounts.iter().map(|user| (
+                                        user.id.to_string(),
+                                        format!("{} {} ({})", user.first_name, user.last_name, user.username),
+                                    )).collect(),
+                                    disabled: pending() || adding(),
+                                    on_change: move |value: String| {
                                         if !*pending.peek() && !*adding.peek() {
-                                            selected.set(event.value().parse().ok());
+                                            selected.set(value.parse().ok());
                                             added.set(false);
                                         }
                                     },
-                                    option { value: "", disabled: true, selected: selected().is_none(), "Choose a user" }
-                                    for user in accounts {
-                                        option { key: "{user.id}", value: "{user.id}", selected: selected() == Some(user.id),
-                                            "{user.first_name} {user.last_name} ({user.username})"
-                                        }
-                                    }
                                 }
                             }
                             button {
@@ -419,6 +419,23 @@ fn PlexProfileForm(
     let missing = saved().filter(|id| !choices.iter().any(|profile| profile.id == *id));
     let value = selected().map(|id| id.to_string()).unwrap_or_default();
     let can_save = selected() != saved();
+    let mut options = vec![(String::new(), "No Plex profile".to_owned())];
+    if let Some(id) = missing {
+        options.push((id.to_string(), format!("Linked profile ({id})")));
+    }
+    options.extend(choices.iter().map(|profile| {
+        let name = if choices
+            .iter()
+            .filter(|other| other.name.eq_ignore_ascii_case(&profile.name))
+            .count()
+            > 1
+        {
+            format!("{} ({})", profile.name, profile.id)
+        } else {
+            profile.name.clone()
+        };
+        (profile.id.to_string(), name)
+    }));
 
     rsx! {
         form { class: "reset-form", method: "post", onmounted: move |_| submission.mounted(), onsubmit: move |event| {
@@ -436,22 +453,9 @@ fn PlexProfileForm(
             }
         },
             label { r#for: "plex-profile-{id}", "Plex profile" }
-            select { id: "plex-profile-{id}", value,
+            crate::select_field::SelectField { id: format!("plex-profile-{id}"), label: "Plex profile", value, options,
                 disabled: submission.disabled() || (choices.is_empty() && saved().is_none()),
-                onchange: move |event| selected.set(event.value().parse().ok()),
-                option { value: "", "No Plex profile" }
-                if let Some(id) = missing {
-                    option { value: "{id}", "Linked profile ({id})" }
-                }
-                for profile in choices {
-                    option { key: "{profile.id}", value: "{profile.id}",
-                        if choices.iter().filter(|other| other.name.eq_ignore_ascii_case(&profile.name)).count() > 1 {
-                            "{profile.name} ({profile.id})"
-                        } else {
-                            "{profile.name}"
-                        }
-                    }
-                }
+                on_change: move |value: String| selected.set(value.parse().ok()),
             }
             if let Some(hint) = hint {
                 p { "{hint}" }

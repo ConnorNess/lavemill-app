@@ -12,6 +12,7 @@ mod card_navigation;
 mod homelab;
 #[cfg(feature = "server")]
 mod household_time;
+mod select_field;
 mod theme;
 mod users;
 use users::Users;
