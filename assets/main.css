@@ -478,7 +478,7 @@ svg { display: block; flex-shrink: 0; }
 .login-page { display: grid; align-content: center; gap: 16px; max-width: 510px; min-height: 100dvh; }
 .login-brand { display: inline-flex; justify-self: start; align-items: center; gap: 8px; min-height: 44px; padding-inline: 12px 16px; color: var(--theme-ink); }
 .login-page h1 { margin-bottom: 20px; }
-.login-page :is(.login-field, .primary-button) {
+.login-page :is(.login-field, .primary-button, .guest-signin .secondary-button) {
     border-radius: 0;
     clip-path: polygon(0 0, calc(100% - var(--panel-corner)) 0, 100% var(--panel-corner), 100% 100%, 0 100%);
 }
@@ -504,9 +504,22 @@ svg { display: block; flex-shrink: 0; }
 }
 .login-page .login-field input:focus-visible { outline-offset: -6px; }
 .login-page .primary-button { justify-self: start; margin-top: 4px; }
-.login-page .primary-button:focus-visible { outline-color: currentColor; outline-offset: -6px; }
+.login-page :is(.primary-button, .guest-signin .secondary-button):focus-visible { outline-color: currentColor; outline-offset: -6px; }
 .login-page .guest-signin { margin-top: 12px; }
-.login-page .guest-signin .secondary-button { justify-self: start; min-height: 44px; }
+.login-page .guest-signin .secondary-button {
+    justify-self: start;
+    min-height: 44px;
+    border: 0;
+    background: var(--theme-active);
+    color: var(--theme-ink);
+}
+.login-page .guest-signin .secondary-button:hover {
+    background: var(--theme-accent-hover);
+    color: var(--theme-checkmark);
+}
+@media (forced-colors: active) {
+    .login-page .guest-signin .secondary-button { border: 1px solid currentColor; clip-path: none; }
+}
 .users-page { max-width: 1050px; overflow-wrap: anywhere; }
 .users-page h1 { margin-bottom: 24px; }
 .user-list { display: grid; gap: 20px; }
