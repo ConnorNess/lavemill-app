@@ -14,12 +14,20 @@ pub fn list(db: &mut Connection, today: NaiveDate) -> Result<Tasks, &'static str
         .map_err(database_error)?;
     let today = today.to_string();
     catch_up(&transaction, &today)?;
-    let tasks = read_tasks(&transaction, today)?;
+    let tasks = read_tasks(&transaction, today, true)?;
     transaction.commit().map_err(database_error)?;
     Ok(tasks)
 }
 
-fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
+pub fn snapshot(db: &Connection, today: NaiveDate) -> Result<Tasks, &'static str> {
+    read_tasks(db, today.to_string(), false)
+}
+
+fn read_tasks(
+    db: &Connection,
+    today: String,
+    include_members: bool,
+) -> Result<Tasks, &'static str> {
     let mut statement = db
         .prepare(
             "SELECT t.id, t.title, t.description, t.due, t.assignee_id,
@@ -35,6 +43,7 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
          JOIN users reporter ON reporter.id = t.reporter_id
          LEFT JOIN users assignee ON assignee.id = t.assignee_id
          LEFT JOIN todo_series s ON s.id = t.series_id
+         WHERE t.status <> 'failed' OR t.missed_on IS NULL OR t.missed_on > date(?1, '-7 days')
          ORDER BY t.due, t.id",
         )
         .map_err(database_error)?;
@@ -62,19 +71,23 @@ fn read_tasks(db: &Connection, today: String) -> Result<Tasks, &'static str> {
         .map_err(database_error)?
         .collect::<Result<_, _>>()
         .map_err(database_error)?;
-    let mut statement = db
-        .prepare("SELECT id, first_name FROM users ORDER BY first_name, last_name, username")
-        .map_err(database_error)?;
-    let members = statement
-        .query_map([], |row| {
-            Ok(Member {
-                id: row.get(0)?,
-                name: row.get(1)?,
+    let mut members = Vec::new();
+    if include_members {
+        let mut statement = db
+            .prepare("SELECT id, first_name FROM users ORDER BY first_name, last_name, username")
+            .map_err(database_error)?;
+        for member in statement
+            .query_map([], |row| {
+                Ok(Member {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                })
             })
-        })
-        .map_err(database_error)?
-        .collect::<Result<_, _>>()
-        .map_err(database_error)?;
+            .map_err(database_error)?
+        {
+            members.push(member.map_err(database_error)?);
+        }
+    }
     Ok(Tasks {
         today,
         tasks,
@@ -503,6 +516,34 @@ fn validate_assignee(db: &Connection, assignee: Option<i64>) -> Result<(), &'sta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guest_snapshot_does_not_advance_overdue_recurring_tasks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("test.sqlite");
+        crate::database::initialize(&path).unwrap();
+        let mut db = crate::database::open(&path).unwrap();
+        db.execute_batch("INSERT INTO users VALUES (1, 'alex', 'Alex', 'One', 'test', 0);")
+            .unwrap();
+        apply(
+            &mut db,
+            "2026-11-23".parse().unwrap(),
+            1,
+            Change::Create {
+                title: "Feed hens".into(),
+                description: String::new(),
+                due: "2026-11-23".into(),
+                assignee: Some(1),
+                repeat: Repeat::Daily,
+            },
+        )
+        .unwrap();
+        db.pragma_update(None, "query_only", true).unwrap();
+        let tasks = snapshot(&db, "2026-11-24".parse().unwrap()).unwrap();
+        assert!(tasks.members.is_empty());
+        assert_eq!(tasks.tasks.len(), 1);
+        assert_eq!(tasks.tasks[0].status, "open");
+    }
 
     #[test]
     fn migration_and_one_off_completion_preserve_reporter_and_assignment() {

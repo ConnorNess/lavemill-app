@@ -2,7 +2,19 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct Viewer {
+pub enum Viewer {
+    Member(MemberViewer),
+    Guest,
+}
+
+impl Viewer {
+    pub fn is_admin(&self) -> bool {
+        matches!(self, Self::Member(member) if member.is_admin)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MemberViewer {
     pub id: i64,
     pub first_name: String,
     pub is_admin: bool,
@@ -13,14 +25,28 @@ pub async fn current_viewer() -> Result<Option<Viewer>, ServerFnError> {
     Ok(request_viewer())
 }
 
+pub(crate) fn use_is_guest() -> bool {
+    let viewer = use_context::<Resource<Result<Option<Viewer>, ServerFnError>>>();
+    let is_guest = matches!(viewer.read().as_ref(), Some(Ok(Some(Viewer::Guest))));
+    is_guest
+}
+
 #[cfg(feature = "server")]
 pub(crate) fn request_viewer() -> Option<Viewer> {
     dioxus::fullstack::FullstackContext::current().and_then(|context| context.extension())
 }
 
 #[cfg(feature = "server")]
-pub(crate) fn require_member() -> Result<Viewer, ServerFnError> {
+pub(crate) fn require_viewer() -> Result<Viewer, ServerFnError> {
     request_viewer().ok_or_else(|| ServerFnError::new("Sign in to continue."))
+}
+
+#[cfg(feature = "server")]
+pub(crate) fn require_member() -> Result<MemberViewer, ServerFnError> {
+    match require_viewer()? {
+        Viewer::Member(member) => Ok(member),
+        Viewer::Guest => Err(ServerFnError::new("Household member access required.")),
+    }
 }
 
 #[component]
@@ -56,6 +82,9 @@ pub fn Login(error: Option<String>) -> Element {
                     }
                     button { class: "primary-button", r#type: "submit", "Sign in" }
                 }
+                form { class: "guest-signin", action: "/auth/guest", method: "post",
+                    button { class: "secondary-button", r#type: "submit", "Continue as guest" }
+                }
             }
         }
     }
@@ -63,7 +92,7 @@ pub fn Login(error: Option<String>) -> Element {
 
 #[cfg(feature = "server")]
 pub mod server {
-    use super::Viewer;
+    use super::{MemberViewer, Viewer};
     use crate::{accounts, database, App};
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use dioxus::server::{
@@ -89,6 +118,7 @@ pub mod server {
     use url::Url;
 
     const SESSION_SECONDS: i64 = 7 * 24 * 60 * 60;
+    const GUEST_SESSION_SECONDS: i64 = 24 * 60 * 60;
 
     #[derive(Clone)]
     struct AuthState {
@@ -97,6 +127,7 @@ pub mod server {
         secure: bool,
         dummy_hash: Arc<str>,
         attempts: Arc<Mutex<Attempts>>,
+        guest_attempts: Arc<Mutex<GuestAttempts>>,
         verification_slots: Arc<Semaphore>,
         calendars: crate::calendar_server::CalendarClients,
         tautulli: crate::tautulli::Tautulli,
@@ -110,6 +141,25 @@ pub mod server {
         since: Instant,
         total: u32,
         by_username: HashMap<String, u32>,
+    }
+
+    struct GuestAttempts {
+        since: Instant,
+        total: u32,
+    }
+
+    impl GuestAttempts {
+        fn allow(&mut self) -> bool {
+            if self.since.elapsed() >= Duration::from_secs(60) {
+                self.since = Instant::now();
+                self.total = 0;
+            }
+            if self.total >= 120 {
+                return false;
+            }
+            self.total += 1;
+            true
+        }
     }
 
     impl Attempts {
@@ -165,6 +215,10 @@ pub mod server {
                     since: Instant::now(),
                     total: 0,
                     by_username: HashMap::new(),
+                })),
+                guest_attempts: Arc::new(Mutex::new(GuestAttempts {
+                    since: Instant::now(),
+                    total: 0,
                 })),
                 verification_slots: Arc::new(Semaphore::new(2)),
             })
@@ -238,6 +292,7 @@ pub mod server {
         Ok(Router::new()
             .route("/healthz", get(|| async { StatusCode::NO_CONTENT }))
             .route("/auth/login", post(sign_in))
+            .route("/auth/guest", post(sign_in_as_guest))
             .route("/auth/logout", post(sign_out))
             .route(
                 "/calendar/{provider}/connect",
@@ -268,6 +323,7 @@ pub mod server {
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum RequestKind {
         HouseholdPage,
+        MemberPage,
         AdminPage,
         HouseholdApi,
         AdminApi,
@@ -280,12 +336,16 @@ pub mod server {
 
     impl RequestKind {
         fn classify(path: &str) -> Self {
-            match path.trim_end_matches('/') {
+            let page = path.trim_end_matches('/');
+            match page {
                 "/users" => return Self::AdminPage,
-                "" | "/todos" | "/shopping" | "/calendar" => return Self::HouseholdPage,
+                "/calendar" | "/recipes/new" => return Self::MemberPage,
+                "" | "/todos" | "/shopping" => return Self::HouseholdPage,
                 _ => {}
             }
-            if path == "/recipes" || path.starts_with("/recipes/") {
+            if page.starts_with("/recipes/") && page.ends_with("/edit") {
+                Self::MemberPage
+            } else if page == "/recipes" || page.starts_with("/recipes/") {
                 Self::HouseholdPage
             } else if path.starts_with("/api/users") {
                 Self::AdminApi
@@ -293,8 +353,7 @@ pub mod server {
                 Self::Session
             } else if path == "/api/activity" {
                 Self::ActivityApi
-            } else if path.starts_with("/calendar/google/")
-                || path.starts_with("/calendar/outlook/")
+            } else if path.starts_with("/calendar/")
                 || path == "/api/calendar"
                 || path.starts_with("/api/calendar/")
             {
@@ -317,6 +376,26 @@ pub mod server {
                 Self::Other
             }
         }
+
+        fn guest_denial(self, path: &str, method: &Method) -> Option<Response> {
+            match self {
+                Self::MemberPage | Self::AdminPage => Some(Redirect::to("/").into_response()),
+                Self::HouseholdPage | Self::HouseholdApi | Self::ActivityApi | Self::Session
+                    if matches!(*method, Method::GET | Method::HEAD)
+                        && (self != Self::HouseholdApi || is_guest_read(path)) =>
+                {
+                    None
+                }
+                _ => Some(StatusCode::FORBIDDEN.into_response()),
+            }
+        }
+    }
+
+    fn is_guest_read(path: &str) -> bool {
+        matches!(path, "/api/todos" | "/api/shopping" | "/api/recipes")
+            || path
+                .strip_prefix("/api/recipes/")
+                .is_some_and(|id| id.parse::<i64>().is_ok())
     }
 
     async fn guard(State(state): State<AuthState>, mut request: Request, next: Next) -> Response {
@@ -344,23 +423,37 @@ pub mod server {
             };
             match viewer {
                 Some(viewer) => {
+                    if matches!(viewer, Viewer::Guest) {
+                        if let Some(response) =
+                            kind.guest_denial(request.uri().path(), request.method())
+                        {
+                            return private(response);
+                        }
+                    }
                     if matches!(kind, RequestKind::AdminPage | RequestKind::AdminApi)
-                        && !viewer.is_admin
+                        && !viewer.is_admin()
                     {
                         return private(StatusCode::FORBIDDEN.into_response());
                     }
-                    request.extensions_mut().insert(viewer);
-                    if let Some(token) = token {
-                        request.extensions_mut().insert(SessionHash(token));
+                    if let Viewer::Member(member) = &viewer {
+                        request.extensions_mut().insert(member.clone());
+                        if let Some(token) = token {
+                            request.extensions_mut().insert(SessionHash(token));
+                        }
+                        request.extensions_mut().insert(state.calendars.clone());
                     }
-                    request.extensions_mut().insert(state.calendars.clone());
+                    request.extensions_mut().insert(viewer);
                     request.extensions_mut().insert(state.tautulli.clone());
                     // Home also loads activity during its initial server render.
                     if kind == RequestKind::ActivityApi || request.uri().path() == "/" {
                         request.extensions_mut().insert(state.steam.clone());
                     }
                 }
-                None if matches!(kind, RequestKind::HouseholdPage | RequestKind::AdminPage) => {
+                None if matches!(
+                    kind,
+                    RequestKind::HouseholdPage | RequestKind::MemberPage | RequestKind::AdminPage
+                ) =>
+                {
                     return private(Redirect::to("/login").into_response());
                 }
                 None if kind != RequestKind::Session => {
@@ -385,8 +478,9 @@ pub mod server {
             ("/", HouseholdPage),
             ("/todos/", HouseholdPage),
             ("/shopping", HouseholdPage),
-            ("/recipes/42/edit", HouseholdPage),
-            ("/calendar/", HouseholdPage),
+            ("/recipes/42/edit", MemberPage),
+            ("/recipes/new", MemberPage),
+            ("/calendar/", MemberPage),
             ("/users/", AdminPage),
             ("/api/users/create", AdminApi),
             ("/api/users-extra", AdminApi),
@@ -403,10 +497,63 @@ pub mod server {
             ("/api/session", Session),
             ("/api/session/", Other),
             ("/login", PublicAuth),
+            ("/auth/guest", PublicAuth),
             ("/auth/logout", PublicAuth),
             ("/healthz", Other),
         ] {
             assert_eq!(RequestKind::classify(path), expected, "{path}");
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn guests_can_only_read_allowed_pages_and_apis() {
+        for path in [
+            "/",
+            "/todos",
+            "/shopping",
+            "/recipes",
+            "/recipes/42",
+            "/api/session",
+            "/api/todos",
+            "/api/shopping",
+            "/api/recipes",
+            "/api/recipes/42",
+            "/api/activity",
+        ] {
+            assert!(
+                RequestKind::classify(path)
+                    .guest_denial(path, &Method::GET)
+                    .is_none(),
+                "{path}"
+            );
+        }
+        for path in ["/calendar", "/users", "/recipes/new", "/recipes/42/edit"] {
+            let denied = RequestKind::classify(path)
+                .guest_denial(path, &Method::GET)
+                .unwrap();
+            assert_eq!(denied.headers()[header::LOCATION], "/", "{path}");
+        }
+        for (method, path) in [
+            (Method::POST, "/api/todos/change"),
+            (Method::POST, "/api/shopping/change"),
+            (Method::POST, "/api/recipes/create"),
+            (Method::POST, "/api/recipes/42/edit"),
+            (Method::POST, "/api/recipes/42/delete"),
+            (Method::POST, "/api/recipes/42/shopping"),
+            (Method::GET, "/api/calendar/agenda"),
+            (Method::GET, "/api/calendar/view"),
+            (Method::GET, "/api/calendar/connection"),
+            (Method::GET, "/api/calendar/outlook/connection"),
+            (Method::GET, "/calendar/google/callback"),
+            (Method::POST, "/calendar/outlook/share"),
+            (Method::GET, "/api/users"),
+            (Method::GET, "/api/homelab/shortcuts"),
+        ] {
+            let denied = RequestKind::classify(path)
+                .guest_denial(path, &method)
+                .unwrap();
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN, "{path}");
         }
     }
 
@@ -456,10 +603,12 @@ pub mod server {
     async fn sign_out(State(state): State<AuthState>, headers: HeaderMap) -> Response {
         if let Some(token) = state.token(&headers) {
             let result = run_blocking(move || {
-                connection()?
-                    .execute("DELETE FROM sessions WHERE token_hash = ?1", [&token[..]])
+                let mut db = connection()?;
+                let transaction = db
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
                     .map_err(accounts::database_error)?;
-                Ok(())
+                revoke_session(&transaction, &token)?;
+                transaction.commit().map_err(accounts::database_error)
             })
             .await;
             if result.is_err() {
@@ -475,6 +624,24 @@ pub mod server {
             Redirect::to("/login"),
         )
             .into_response()
+    }
+
+    async fn sign_in_as_guest(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+        if !state.guest_attempts.lock().unwrap().allow() {
+            return Redirect::to("/login?error=retry").into_response();
+        }
+        let previous = state.token(&headers);
+        match run_blocking(move || issue_guest_session(&mut connection()?, previous)).await {
+            Ok(token) => (
+                [(
+                    header::SET_COOKIE,
+                    state.cookie(&token, GUEST_SESSION_SECONDS),
+                )],
+                Redirect::to("/"),
+            )
+                .into_response(),
+            Err(_) => Redirect::to("/login?error=unavailable").into_response(),
+        }
     }
 
     pub async fn run_blocking<T: Send + 'static>(
@@ -500,11 +667,76 @@ pub mod server {
     }
 
     fn lookup_session(token: &[u8; 32]) -> Result<Option<Viewer>, &'static str> {
-        connection()?.query_row(
+        read_session(&connection()?, token, now())
+    }
+
+    fn read_session(
+        db: &rusqlite::Connection,
+        token: &[u8; 32],
+        now: i64,
+    ) -> Result<Option<Viewer>, &'static str> {
+        let member = db.query_row(
             "SELECT users.id, first_name, is_admin FROM sessions JOIN users ON users.id = user_id WHERE token_hash = ?1 AND expires_at > ?2",
-            params![&token[..], now()],
-            |row| Ok(Viewer { id: row.get(0)?, first_name: row.get(1)?, is_admin: row.get(2)? }),
-        ).optional().map_err(accounts::database_error)
+            params![&token[..], now],
+            |row| Ok(MemberViewer { id: row.get(0)?, first_name: row.get(1)?, is_admin: row.get(2)? }),
+        ).optional().map_err(accounts::database_error)?;
+        if let Some(member) = member {
+            return Ok(Some(Viewer::Member(member)));
+        }
+        db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM guest_sessions WHERE token_hash = ?1 AND expires_at > ?2)",
+            params![&token[..], now],
+            |row| Ok(row.get::<_, bool>(0)?.then_some(Viewer::Guest)),
+        )
+        .map_err(accounts::database_error)
+    }
+
+    fn new_session_token() -> Result<([u8; 32], String), &'static str> {
+        let mut secret = [0; 32];
+        getrandom::fill(&mut secret).map_err(|_| "Could not generate a session token.")?;
+        Ok((
+            Sha256::digest(secret).into(),
+            URL_SAFE_NO_PAD.encode(secret),
+        ))
+    }
+
+    fn revoke_session(db: &rusqlite::Connection, token: &[u8; 32]) -> Result<(), &'static str> {
+        db.execute("DELETE FROM sessions WHERE token_hash = ?1", [&token[..]])
+            .map_err(accounts::database_error)?;
+        db.execute(
+            "DELETE FROM guest_sessions WHERE token_hash = ?1",
+            [&token[..]],
+        )
+        .map_err(accounts::database_error)?;
+        Ok(())
+    }
+
+    fn issue_guest_session(
+        db: &mut rusqlite::Connection,
+        previous: Option<[u8; 32]>,
+    ) -> Result<String, &'static str> {
+        let (token_hash, token) = new_session_token()?;
+        let transaction = db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(accounts::database_error)?;
+        let issued_at = now();
+        transaction
+            .execute(
+                "DELETE FROM guest_sessions WHERE expires_at <= ?1",
+                [issued_at],
+            )
+            .map_err(accounts::database_error)?;
+        if let Some(previous) = previous {
+            revoke_session(&transaction, &previous)?;
+        }
+        transaction
+            .execute(
+                "INSERT INTO guest_sessions (token_hash, expires_at) VALUES (?1, ?2)",
+                params![&token_hash[..], issued_at + GUEST_SESSION_SECONDS],
+            )
+            .map_err(accounts::database_error)?;
+        transaction.commit().map_err(accounts::database_error)?;
+        Ok(token)
     }
 
     fn issue_session(
@@ -532,9 +764,7 @@ pub mod server {
             return Ok(None);
         };
 
-        let mut secret = [0; 32];
-        getrandom::fill(&mut secret).map_err(|_| "Could not generate a session token.")?;
-        let token_hash = Sha256::digest(secret);
+        let (token_hash, token) = new_session_token()?;
         let transaction = db
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(accounts::database_error)?;
@@ -556,18 +786,61 @@ pub mod server {
             return Ok(None);
         }
         transaction
-            .execute(
-                "DELETE FROM sessions WHERE expires_at <= ?1 OR token_hash = ?2",
-                params![issued_at, previous.as_ref().map(|token| &token[..])],
-            )
+            .execute("DELETE FROM sessions WHERE expires_at <= ?1", [issued_at])
             .map_err(accounts::database_error)?;
+        if let Some(previous) = previous {
+            revoke_session(&transaction, &previous)?;
+        }
         transaction.commit().map_err(accounts::database_error)?;
-        Ok(Some(URL_SAFE_NO_PAD.encode(secret)))
+        Ok(Some(token))
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn guest_sessions_expire_and_rotate_without_creating_users() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("guest.sqlite");
+            database::initialize(&path).unwrap();
+            let mut db = database::open(&path).unwrap();
+            let state = AuthState::new("https://lavemill.example.com").unwrap();
+            let token_hash = |token: &str| {
+                let cookie =
+                    HeaderValue::from_str(&format!("{}={token}", state.cookie_name())).unwrap();
+                let mut headers = HeaderMap::new();
+                headers.insert(header::COOKIE, cookie);
+                state.token(&headers).unwrap()
+            };
+            let token = issue_guest_session(&mut db, None).unwrap();
+            let first = token_hash(&token);
+            let expiry: i64 = db
+                .query_row("SELECT expires_at FROM guest_sessions", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(
+                read_session(&db, &first, expiry - 1).unwrap(),
+                Some(Viewer::Guest)
+            );
+            assert_eq!(read_session(&db, &first, expiry).unwrap(), None);
+
+            let token = issue_guest_session(&mut db, Some(first)).unwrap();
+            let second = token_hash(&token);
+            assert_ne!(first, second);
+            assert_eq!(read_session(&db, &first, now()).unwrap(), None);
+            assert_eq!(
+                read_session(&db, &second, now()).unwrap(),
+                Some(Viewer::Guest)
+            );
+            revoke_session(&db, &second).unwrap();
+            assert_eq!(read_session(&db, &second, now()).unwrap(), None);
+            let users: i64 = db
+                .query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(users, 0);
+        }
 
         #[test]
         fn loopback_alias_requires_matching_host_and_port() {

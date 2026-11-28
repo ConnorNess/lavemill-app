@@ -144,17 +144,34 @@ async fn shared_agenda() -> Result<Option<Agenda>, ServerFnError> {
 }
 
 #[cfg(feature = "server")]
-fn calendar_context(
-) -> Result<(crate::auth::Viewer, crate::calendar_server::CalendarClients), ServerFnError> {
+fn calendar_context() -> Result<
+    (
+        crate::auth::MemberViewer,
+        crate::calendar_server::CalendarClients,
+    ),
+    ServerFnError,
+> {
+    let viewer = crate::auth::require_member()?;
     let context = dioxus::fullstack::FullstackContext::current()
-        .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
-    let viewer = context
-        .extension()
         .ok_or_else(|| ServerFnError::new("Sign in to use Calendar."))?;
     let clients = context
         .extension()
         .ok_or_else(|| ServerFnError::new("Calendar is unavailable."))?;
     Ok((viewer, clients))
+}
+
+#[component]
+pub fn CalendarNoAccess() -> Element {
+    rsx! {
+        section { class: "dashboard-card calendar-no-access", aria_labelledby: "calendar-title",
+            CardHeading {
+                icon: "calendar", title: "Shared Calendar", id: "calendar-title", count: String::new(),
+            }
+            div { class: "card-body",
+                span { class: "activity-empty", "NO ACCESS" }
+            }
+        }
+    }
 }
 
 #[component]

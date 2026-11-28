@@ -2,7 +2,7 @@ use crate::{
     accounts::database_error,
     auth::{
         server::{connection, now, run_blocking, SessionHash},
-        Viewer,
+        MemberViewer,
     },
     calendar::{CalendarChoice, CalendarChoices, ConnectionStatus, Provider},
 };
@@ -406,7 +406,7 @@ impl CalendarClient {
 
 pub async fn connect(
     Path(provider): Path<Provider>,
-    Extension(viewer): Extension<Viewer>,
+    Extension(viewer): Extension<MemberViewer>,
     Extension(session): Extension<SessionHash>,
     Extension(clients): Extension<CalendarClients>,
     headers: HeaderMap,
@@ -456,7 +456,7 @@ pub struct Callback {
 
 pub async fn callback(
     Path(provider): Path<Provider>,
-    Extension(viewer): Extension<Viewer>,
+    Extension(viewer): Extension<MemberViewer>,
     Extension(session): Extension<SessionHash>,
     Extension(clients): Extension<CalendarClients>,
     Query(query): Query<Callback>,
@@ -497,7 +497,7 @@ pub async fn callback(
 
 pub async fn disconnect(
     Path(provider): Path<Provider>,
-    Extension(viewer): Extension<Viewer>,
+    Extension(viewer): Extension<MemberViewer>,
 ) -> Redirect {
     match run_blocking(move || remove_connection(&mut connection()?, provider.key(), viewer.id))
         .await
@@ -514,7 +514,7 @@ pub struct CalendarSelection {
 
 pub async fn select(
     Path(provider): Path<Provider>,
-    Extension(viewer): Extension<Viewer>,
+    Extension(viewer): Extension<MemberViewer>,
     Extension(clients): Extension<CalendarClients>,
     Form(selection): Form<CalendarSelection>,
 ) -> Redirect {
@@ -548,7 +548,7 @@ pub struct CalendarSharing {
 
 pub async fn share(
     Path(provider): Path<Provider>,
-    Extension(viewer): Extension<Viewer>,
+    Extension(viewer): Extension<MemberViewer>,
     Extension(clients): Extension<CalendarClients>,
     Form(sharing): Form<CalendarSharing>,
 ) -> Redirect {

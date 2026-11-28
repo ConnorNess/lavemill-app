@@ -85,7 +85,7 @@ async fn add_recipe_ingredients(
 
 #[get("/api/recipes")]
 async fn list_recipes() -> Result<Vec<RecipeCard>, ServerFnError> {
-    crate::auth::require_member()?;
+    crate::auth::require_viewer()?;
     crate::auth::server::run_blocking(|| {
         storage::list(&crate::auth::server::connection()?).map_err(crate::accounts::database_error)
     })
@@ -95,7 +95,7 @@ async fn list_recipes() -> Result<Vec<RecipeCard>, ServerFnError> {
 
 #[get("/api/recipes/:id")]
 async fn get_recipe(id: i64) -> Result<Option<Recipe>, ServerFnError> {
-    crate::auth::require_member()?;
+    crate::auth::require_viewer()?;
     crate::auth::server::run_blocking(move || {
         storage::get(&mut crate::auth::server::connection()?, id)
             .map_err(crate::accounts::database_error)
@@ -155,13 +155,16 @@ async fn save_recipe(
 
 #[component]
 pub(super) fn Recipes() -> Element {
+    let guest = crate::auth::use_is_guest();
     let recipes = use_server_future(list_recipes)?;
     rsx! {
         document::Title { "Lavemill · Recipes" }
         main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipes-index": "",
             header { class: "recipe-heading",
                 h1 { "Recipes" }
-                Link { class: "recipe-action recipe-control primary-button", to: Route::NewRecipe {}, "Add recipe" }
+                if !guest {
+                    Link { class: "recipe-action recipe-control primary-button", to: Route::NewRecipe {}, "Add recipe" }
+                }
             }
             match recipes.read().as_ref() {
                 Some(Ok(cards)) if cards.is_empty() => rsx! { p { "No recipes yet." } },
@@ -188,6 +191,7 @@ pub(super) fn RecipeDetail(id: i64) -> Element {
 
 #[component]
 fn RecipeDetailContent(id: i64) -> Element {
+    let guest = crate::auth::use_is_guest();
     let recipe = use_server_future(move || get_recipe(id))?;
     rsx! {
         main { id: "main", class: "dashboard interior-page recipes-page", tabindex: "-1", "data-recipe-detail-id": "{id}",
@@ -196,9 +200,11 @@ fn RecipeDetailContent(id: i64) -> Element {
                     document::Title { "Lavemill · {recipe.contents.title}" }
                     header { class: "recipe-heading",
                         h1 { "{recipe.contents.title}" }
-                        div { class: "recipe-detail-actions",
-                            crate::card_navigation::EditRecipeLink { id }
-                            DeleteRecipe { id, revision: recipe.revision, title: recipe.contents.title.clone() }
+                        if !guest {
+                            div { class: "recipe-detail-actions",
+                                crate::card_navigation::EditRecipeLink { id }
+                                DeleteRecipe { id, revision: recipe.revision, title: recipe.contents.title.clone() }
+                            }
                         }
                     }
                     RecipeMethod { id, revision: recipe.revision, contents: recipe.contents.clone() }
@@ -297,6 +303,7 @@ fn DeleteRecipe(id: i64, revision: i64, title: String) -> Element {
 
 #[component]
 fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
+    let guest = crate::auth::use_is_guest();
     let step_numbers = contents.steps.iter().scan(1, |start, section| {
         let current = *start;
         *start += section.entries.len();
@@ -306,7 +313,7 @@ fn RecipeMethod(id: i64, revision: i64, contents: RecipeContents) -> Element {
         div { class: "recipe-method",
             section { class: "surface-panel",
                 h2 { "Ingredients" }
-                if contents.ingredients.iter().any(|section| !section.entries.is_empty()) {
+                if !guest && contents.ingredients.iter().any(|section| !section.entries.is_empty()) {
                     shopping_picker::ShoppingPicker {
                         id,
                         revision,
