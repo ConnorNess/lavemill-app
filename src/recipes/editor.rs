@@ -234,6 +234,18 @@ fn RecipeEditor(target: Option<EditTarget>, initial: Option<RecipeContents>) -> 
     let mut error = use_signal(String::new);
     let mut conflict = use_signal(|| false);
     let navigator = use_navigator();
+    use_effect(move || {
+        if target.is_some() {
+            // Server-rendered textarea value attributes do not initialize the browser value.
+            let _ = document::eval(
+                r#"
+                for (const field of document.querySelectorAll(".recipe-editor textarea[value]")) {
+                    if (field.value === "") field.value = field.getAttribute("value");
+                }
+                "#,
+            );
+        }
+    });
     rsx! {
         form { class: "recipe-editor", onsubmit: move |event| {
             event.prevent_default();
